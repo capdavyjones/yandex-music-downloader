@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -53,6 +54,19 @@ func TestInputScreensUseSharedBrandHeader(t *testing.T) {
 	assert.Contains(t, tokenView, "Connect to Yandex Music")
 	assert.Contains(t, sourceView, "yamdl  //  SOURCE")
 	assert.Contains(t, sourceView, "Paste a Yandex Music link")
+}
+
+func TestStartUiWithLayoutStoresLayout(t *testing.T) {
+	client := ya.NewClient(utils.NewHttpClient())
+	model := StartUiWithLayout(client, ya.DownloadOptions{}, config.Layout{
+		ByArtist:     true,
+		ByAlbum:      true,
+		AlbumDirMask: "{year} - {title}",
+	})
+
+	assert.True(t, model.downloadModel.layout.ByArtist)
+	assert.True(t, model.downloadModel.layout.ByAlbum)
+	assert.Equal(t, "{year} - {title}", model.downloadModel.layout.AlbumDirMask)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
@@ -157,4 +171,29 @@ func TestSourceSubmitAddsTracks(t *testing.T) {
 	assert.Equal(t, UiStateDownloading, updated.initState)
 	assert.Equal(t, 3, updated.downloadModel.tracksTotalCount)
 	assert.Equal(t, 3, updated.downloadModel.downloadableCount)
+}
+
+func TestSourceSubmitStoresFolderArtist(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			{ID: model.FlexibleID("1"), Title: "A", Available: true},
+		},
+		FolderArtist: "ABBA",
+	})
+	updated := updatedModel.(Model)
+
+	assert.Equal(t, "ABBA", updated.downloadModel.folderArtist)
+}
+
+func TestBackToURLClearsFolderArtist(t *testing.T) {
+	m := StartUi(nil)
+	m.initState = UiStateDownloading
+	m.downloadModel.folderArtist = "ABBA"
+
+	updatedModel, _ := m.Update(BackToURLMsg{})
+	updated := updatedModel.(Model)
+
+	assert.Empty(t, updated.downloadModel.folderArtist)
 }

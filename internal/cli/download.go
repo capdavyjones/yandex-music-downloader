@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"ya-music/internal/batch"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -43,6 +44,12 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		return parsed.exitCode
 	}
 	options := parsed.options
+
+	cfg, err := config.Load(options.configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
 	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
 	defer downloadLogger.Close()
@@ -83,10 +90,12 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
-			Client:    client,
-			Tracks:    tracks,
-			OutputDir: options.output,
-			Context:   batchContext,
+			Client:       client,
+			Tracks:       tracks,
+			OutputDir:    options.output,
+			Context:      batchContext,
+			Layout:       cfg.Layout,
+			FolderArtist: preflight.folderArtist,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,
@@ -140,8 +149,9 @@ type downloadPreflightClient interface {
 }
 
 type downloadPreflightResult struct {
-	tracks []model.Track
-	err    error
+	tracks       []model.Track
+	folderArtist string
+	err          error
 }
 
 func startDownloadPreflight(client downloadPreflightClient, link string) <-chan downloadPreflightResult {
@@ -162,14 +172,14 @@ func runDownloadPreflight(client downloadPreflightClient, link string) downloadP
 		return downloadPreflightResult{err: fmt.Errorf("failed to validate token: %w", err)}
 	}
 
-	tracks, err := source.Resolve(client, link)
+	resolved, err := source.Resolve(client, link)
 	if err != nil {
 		return downloadPreflightResult{err: fmt.Errorf("failed to resolve source: %w", err)}
 	}
-	if len(tracks) == 0 {
+	if len(resolved.Tracks) == 0 {
 		return downloadPreflightResult{err: errors.New("failed to resolve source: no tracks found")}
 	}
-	return downloadPreflightResult{tracks: tracks}
+	return downloadPreflightResult{tracks: resolved.Tracks, folderArtist: resolved.FolderArtist}
 }
 
 func awaitDownloadPreflight(
