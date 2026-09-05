@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
+
 ## v1.13.3 - 2026-09-16
 
 This release makes custom download locations reliable across both the CLI and the terminal UI.
