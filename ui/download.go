@@ -624,7 +624,7 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	client := m.client
 	logger := downloadLogger(client)
 	options := m.downloadOptions
-	targetDir := utils.ResolveOutputDir()
+	targetDir := m.targetDir()
 	sessionConfig := SessionConfig{
 		Settings:       m.settings,
 		FolderArtist:   m.folderArtist,
@@ -796,6 +796,12 @@ func (m DownloadModel) renderQueueHeader() string {
 	return ansi.Truncate(render("Q", compactStats), width, "…")
 }
 
+// targetDir resolves the download root: YAMDL_DOWNLOAD_DIR, then download_dir
+// from the YAML config, then ./downloads.
+func (m DownloadModel) targetDir() string {
+	return utils.ResolveOutputDirWithFallback(m.settings.DownloadDir)
+}
+
 func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 	switch m.focusedView {
 	case viewFormatMP3:
@@ -818,7 +824,7 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 			return *m, nil
 		}
 		m.errorMsg = ""
-		targetDir := utils.ResolveOutputDir()
+		targetDir := m.targetDir()
 		if err := utils.EnsureOutputDir(targetDir); err != nil {
 			downloadLogger(m.client).Error("failed to prepare output directory", "error", err, "path", targetDir)
 			m.errorMsg = fmt.Sprintf("Directory error: %v", err)

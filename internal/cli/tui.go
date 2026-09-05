@@ -40,7 +40,10 @@ func runTUI(args []string, stderr io.Writer) int {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
+	downloadOptions := ya.DownloadOptions{
+		SkipCover:   options.skipCover,
+		AudioFormat: resolveAudioFormat("", cfg.Format),
+	}
 	prog := tea.NewProgram(ui.StartUiWithConfig(client, downloadOptions, cfg))
 
 	go func() {

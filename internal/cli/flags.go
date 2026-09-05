@@ -70,14 +70,14 @@ func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
 }
 
 func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[downloadOptions] {
-	options := downloadOptions{format: ya.AudioFormatMP3, output: utils.ResolveOutputDir()}
+	options := downloadOptions{}
 	flags := flag.NewFlagSet("yamdl download", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.token, "token", "", "Yandex Music authentication token (required)")
 	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, artist, playlist, or chart URL (required)")
-	format := string(options.format)
-	flags.StringVar(&format, "format", format, "audio format: mp3 or flac")
-	flags.StringVar(&options.output, "output", options.output, "directory for downloaded tracks")
+	format := ""
+	flags.StringVar(&format, "format", format, "audio format: mp3 or flac (overrides config)")
+	flags.StringVar(&options.output, "output", "", "directory for downloaded tracks (overrides config)")
 	registerSharedFlags(flags, &options.sharedFlags)
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: yamdl download --token TOKEN --link URL [options]")
@@ -105,17 +105,34 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 		fmt.Fprintln(stderr, err)
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}
-	options.format = ya.AudioFormat(strings.ToLower(strings.TrimSpace(format)))
-	if options.format != ya.AudioFormatMP3 && options.format != ya.AudioFormatFLAC {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format != "" && format != string(ya.AudioFormatMP3) && format != string(ya.AudioFormatFLAC) {
 		fmt.Fprintln(stderr, "--format must be mp3 or flac")
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}
+	options.format = ya.AudioFormat(format)
 	options.output = strings.TrimSpace(options.output)
-	if options.output == "" {
-		fmt.Fprintln(stderr, "--output must not be empty")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
 	options.token = strings.TrimSpace(options.token)
 	options.link = strings.TrimSpace(options.link)
 	return parseOutcome[downloadOptions]{options: options, proceed: true}
+}
+
+// resolveAudioFormat picks the format: an explicit --format overrides YAML, otherwise mp3.
+func resolveAudioFormat(flagFormat ya.AudioFormat, cfgFormat string) ya.AudioFormat {
+	if flagFormat != "" {
+		return flagFormat
+	}
+	if cfgFormat != "" {
+		return ya.AudioFormat(cfgFormat)
+	}
+	return ya.AudioFormatMP3
+}
+
+// resolveOutput picks the download directory: an explicit --output, then YAMDL_DOWNLOAD_DIR,
+// then download_dir from YAML, otherwise ./downloads.
+func resolveOutput(flagOutput, cfgDownloadDir string) string {
+	if flagOutput != "" {
+		return flagOutput
+	}
+	return utils.ResolveOutputDirWithFallback(cfgDownloadDir)
 }

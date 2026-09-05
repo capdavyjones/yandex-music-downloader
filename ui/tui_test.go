@@ -62,6 +62,7 @@ func TestInputScreensUseSharedBrandHeader(t *testing.T) {
 func TestStartUiWithConfigStoresSettings(t *testing.T) {
 	client := ya.NewClient(utils.NewHttpClient())
 	model := StartUiWithConfig(client, ya.DownloadOptions{}, config.Config{
+		DownloadDir: "./music",
 		Layout: config.Layout{
 			ByArtist:      true,
 			ByAlbum:       true,
@@ -75,6 +76,7 @@ func TestStartUiWithConfigStoresSettings(t *testing.T) {
 	assert.True(t, settings.Layout.ByAlbum)
 	assert.Equal(t, "{year} - {title}", settings.Layout.AlbumDirMask)
 	assert.Equal(t, "{nn} - {title}", settings.Layout.TrackFileMask)
+	assert.Equal(t, "./music", settings.DownloadDir)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
