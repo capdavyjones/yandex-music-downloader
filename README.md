@@ -35,7 +35,7 @@ A TUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 -   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
--   Optional: point to a YAML config for file layout: `./yamdl --config ./yamdl.yaml`
+-   Optional: point to a YAML config for file layout, default format, and download directory: `./yamdl --config ./yamdl.yaml`
 
 ## Development
 
@@ -69,9 +69,9 @@ Available options:
 
 - `--token <token>` is required. Provide your Yandex Music OAuth token.
 - `--link <url>` is required. Provide a Yandex Music track, album, artist, playlist, or chart URL. For an artist, an album that cannot be loaded after several retries is skipped with a warning on stderr, and the summary shows `Albums not loaded: N`.
-- `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
-- `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
-- `--config <path>` loads file-layout settings from YAML. If omitted, `./yamdl.yaml` is used when present.
+- `--format <mp3|flac>` selects MP3 or lossless download and overrides `format` from YAML. MP3 is the default when neither is set.
+- `--output <directory>` selects the destination directory. It overrides `YAMDL_DOWNLOAD_DIR`, which in turn overrides `download_dir` from YAML. `./downloads` is the default when none is set.
+- `--config <path>` loads YAML settings for file layout, default format, and download directory. If omitted, `./yamdl.yaml` is used when present.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 
@@ -89,9 +89,11 @@ Output: ./downloads
 
 ## File layout
 
-By default, tracks are saved as `Artist - Title.ext` directly in the output directory. To nest files by artist and/or release, create `yamdl.yaml` in the working directory (or pass `--config`):
+By default, tracks are saved as `Artist - Title.ext` directly in the output directory. To nest files by artist and/or release, or to change the default download format and download directory, create `yamdl.yaml` in the working directory (or pass `--config`):
 
 ```yaml
+format: flac
+download_dir: ./downloads
 layout:
   by_artist: true
   by_album: true
@@ -100,6 +102,8 @@ layout:
   track_file_mask: "{nn} - {title}"
 ```
 
+- `format` selects the default download format: `mp3` or `flac`. It applies to the TUI and to `yamdl download` when `--format` is omitted. MP3 remains the default if the key is missing. For `yamdl download`, `--format` overrides this value.
+- `download_dir` selects the destination directory. It applies to the TUI and to `yamdl download`. `./downloads` remains the default if the key is missing. The `YAMDL_DOWNLOAD_DIR` environment variable overrides this value, and for `yamdl download` the `--output` flag overrides both.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.
@@ -174,14 +178,14 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 5. Download Preparation
 
 -   Upon valid URL input, the next screen displays a track listing with status indicators
--   Use the action bar to choose a format for all tracks and run actions from one place
+-   Use the action bar to choose a format for all tracks and run actions from one place. The initially selected format comes from YAML `format` when present.
 -   Press `<Tab>` to move between the track list and controls; use arrow keys or `<H>`/`<J>`/`<K>`/`<L>` to move inside controls, `<Esc>` or `<Tab>` to return to the track list, and `<Enter>`/`<Space>` to select the focused control; press uppercase `<D>` to start `Download all` directly
 -   Press `<1>` or `<2>` to select MP3 or FLAC, `<b>` to go back, `<q>` to quit or cancel an active download, and `<?>` to toggle expanded command help
 -   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when lossless is unavailable
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   Supported source URLs include tracks, albums, artists, playlists, and Yandex Music charts
 -   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
--   Downloads are saved to `./downloads` in the application's working directory (or to the directory specified by the `YAMDL_DOWNLOAD_DIR` environment variable), optionally nested by the [file layout](#file-layout) config
+-   Downloads are saved to `./downloads` by default, to `download_dir` from the [file layout](#file-layout) config, or to `YAMDL_DOWNLOAD_DIR` when that environment variable is set, optionally nested by that config
 -   Track status indicators:
 
 ```
@@ -216,7 +220,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 7. Completion
 
 -   The progress bar fills completely upon download completion
--   Downloaded tracks are available in the `./downloads` directory (or the directory specified by `YAMDL_DOWNLOAD_DIR` environment variable)
+-   Downloaded tracks are available in the `./downloads` directory, or in the directory set by `YAMDL_DOWNLOAD_DIR` or `download_dir` from the YAML config
 -   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in the destination directory; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)

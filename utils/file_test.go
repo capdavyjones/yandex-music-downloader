@@ -78,6 +78,23 @@ func TestResolveOutputDir(t *testing.T) {
 	})
 }
 
+func TestResolveOutputDirWithFallback(t *testing.T) {
+	t.Run("environment variable overrides fallback", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "/env/music")
+		assert.Equal(t, "/env/music", ResolveOutputDirWithFallback("./from-config"))
+	})
+
+	t.Run("fallback when environment variable is unset", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "")
+		assert.Equal(t, "./from-config", ResolveOutputDirWithFallback(" ./from-config "))
+	})
+
+	t.Run("default when both are empty", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "")
+		assert.Equal(t, DefaultOutputDir, ResolveOutputDirWithFallback("  "))
+	})
+}
+
 func TestEnsureOutputDir(t *testing.T) {
 	t.Run("creates valid directory", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "nested", "downloads")

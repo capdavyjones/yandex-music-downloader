@@ -15,6 +15,8 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.Equal(t, Default(), cfg)
+	assert.Equal(t, DefaultFormat, cfg.Format)
+	assert.Empty(t, cfg.DownloadDir)
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
 	assert.False(t, cfg.Layout.ByPlaylist)
@@ -43,6 +45,8 @@ layout:
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
+	assert.Equal(t, DefaultFormat, cfg.Format)
+	assert.Empty(t, cfg.DownloadDir)
 	assert.True(t, cfg.Layout.ByArtist)
 	assert.True(t, cfg.Layout.ByAlbum)
 	assert.True(t, cfg.Layout.ByPlaylist)
@@ -98,6 +102,51 @@ layout:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown track_file_mask placeholder {name}")
+}
+
+func TestLoadParsesFormat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("format: FLAC\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "flac", cfg.Format)
+}
+
+func TestLoadEmptyFormatDefaultsToMP3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("format: \"\"\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultFormat, cfg.Format)
+}
+
+func TestLoadParsesDownloadDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("download_dir: \" ./music \"\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "./music", cfg.DownloadDir)
+}
+
+func TestLoadLeavesDownloadDirEmptyWhenUnset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("download_dir: \"\"\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.DownloadDir)
+}
+
+func TestLoadRejectsUnknownFormat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("format: aac\n"), 0644))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "format must be mp3 or flac")
 }
 
 func TestLoadRejectsInvalidYAML(t *testing.T) {
