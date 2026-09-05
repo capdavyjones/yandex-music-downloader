@@ -31,10 +31,11 @@ type Client interface {
 	Chart(region string) (*model.Playlist, error)
 }
 
-// Result — треки источника и имя исполнителя для раскладки папок.
+// Result — треки источника и имена папок для раскладки.
 type Result struct {
-	Tracks       []model.Track
-	FolderArtist string
+	Tracks         []model.Track
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 func Resolve(client Client, input string) (Result, error) {
@@ -54,7 +55,10 @@ func resolvePlaylist(load func() (*model.Playlist, error)) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Tracks: playlist.TracksList()}, nil
+	return Result{
+		Tracks:         playlist.TracksList(),
+		FolderPlaylist: strings.TrimSpace(playlist.Title),
+	}, nil
 }
 
 func resolveRef(client Client, ref *Ref) (Result, error) {
