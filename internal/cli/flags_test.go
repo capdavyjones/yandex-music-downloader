@@ -94,6 +94,54 @@ func TestParseDownloadOptionsAcceptsConfigAndArtistLink(t *testing.T) {
 	if parsed.options.link != "https://music.yandex.ru/artist/170660" {
 		t.Fatalf("link = %q", parsed.options.link)
 	}
+	if parsed.options.format != "" {
+		t.Fatalf("format = %q, want empty so config can apply", parsed.options.format)
+	}
+	if parsed.options.output != "" {
+		t.Fatalf("output = %q, want empty so config can apply", parsed.options.output)
+	}
+}
+
+func TestParseDownloadOptionsOmitsFormatWhenUnset(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+	}, &stderr)
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.format != "" {
+		t.Fatalf("format = %q, want empty", parsed.options.format)
+	}
+	if parsed.options.output != "" {
+		t.Fatalf("output = %q, want empty", parsed.options.output)
+	}
+}
+
+func TestResolveAudioFormatPrefersFlagOverConfig(t *testing.T) {
+	if got := resolveAudioFormat(ya.AudioFormatMP3, "flac"); got != ya.AudioFormatMP3 {
+		t.Fatalf("got %q, want mp3 flag to override config", got)
+	}
+	if got := resolveAudioFormat("", "flac"); got != ya.AudioFormatFLAC {
+		t.Fatalf("got %q, want flac from config", got)
+	}
+	if got := resolveAudioFormat("", ""); got != ya.AudioFormatMP3 {
+		t.Fatalf("got %q, want mp3 default", got)
+	}
+}
+
+func TestResolveOutputPrefersFlagOverConfig(t *testing.T) {
+	t.Setenv("YAMDL_DOWNLOAD_DIR", "")
+	if got := resolveOutput("./music", "./from-config"); got != "./music" {
+		t.Fatalf("got %q, want flag to override config", got)
+	}
+	if got := resolveOutput("", "./from-config"); got != "./from-config" {
+		t.Fatalf("got %q, want path from config", got)
+	}
+	if got := resolveOutput("", ""); got != "./downloads" {
+		t.Fatalf("got %q, want default downloads dir", got)
+	}
 }
 
 func TestParseTUIOptionsAcceptsConfigPath(t *testing.T) {
@@ -136,7 +184,7 @@ func TestParseDownloadOptionsRejectsPositionalArgs(t *testing.T) {
 	}
 }
 
-func TestParseDownloadOptionsUsesEnvVariable(t *testing.T) {
+func TestResolveOutputUsesEnvVariableOverConfig(t *testing.T) {
 	t.Setenv("YAMDL_DOWNLOAD_DIR", "/env/download/path")
 
 	var stderr bytes.Buffer
@@ -148,8 +196,8 @@ func TestParseDownloadOptionsUsesEnvVariable(t *testing.T) {
 	if !parsed.proceed {
 		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
 	}
-	if parsed.options.output != "/env/download/path" {
-		t.Fatalf("expected output = %q, got %q", "/env/download/path", parsed.options.output)
+	if got := resolveOutput(parsed.options.output, "./from-config"); got != "/env/download/path" {
+		t.Fatalf("expected output = %q, got %q", "/env/download/path", got)
 	}
 }
 
@@ -166,7 +214,7 @@ func TestParseDownloadOptionsFlagOverridesEnv(t *testing.T) {
 	if !parsed.proceed {
 		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
 	}
-	if parsed.options.output != "/flag/download/path" {
-		t.Fatalf("expected output = %q, got %q", "/flag/download/path", parsed.options.output)
+	if got := resolveOutput(parsed.options.output, "./from-config"); got != "/flag/download/path" {
+		t.Fatalf("expected output = %q, got %q", "/flag/download/path", got)
 	}
 }

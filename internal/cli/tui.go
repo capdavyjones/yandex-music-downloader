@@ -40,8 +40,11 @@ func runTUI(args []string, stderr io.Writer) int {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
-	prog := tea.NewProgram(ui.StartUiWithLayout(client, downloadOptions, cfg.Layout))
+	downloadOptions := ya.DownloadOptions{
+		SkipCover:   options.skipCover,
+		AudioFormat: resolveAudioFormat("", cfg.Format),
+	}
+	prog := tea.NewProgram(ui.StartUiWithLayout(client, downloadOptions, cfg.Layout, cfg.DownloadDir))
 
 	go func() {
 		sig := <-sigCh

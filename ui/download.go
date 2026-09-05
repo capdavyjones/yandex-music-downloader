@@ -161,6 +161,7 @@ type DownloadModel struct {
 	client          *ya.Client
 	downloadOptions ya.DownloadOptions
 	layout          config.Layout
+	outputDir       string
 	folderArtist    string
 	folderPlaylist  string
 
@@ -197,10 +198,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
-	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{})
+	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{}, "")
 }
 
-func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout) DownloadModel {
+func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout, output string) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -233,6 +234,7 @@ func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, l
 		client:            client,
 		downloadOptions:   options,
 		layout:            layout,
+		outputDir:         output,
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -580,7 +582,7 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	client := m.client
 	logger := downloadLogger(client)
 	options := m.downloadOptions
-	targetDir := utils.ResolveOutputDir()
+	targetDir := m.targetDir()
 	layoutCfg := m.layout
 	folderArtist := m.folderArtist
 	folderPlaylist := m.folderPlaylist
@@ -754,6 +756,12 @@ func (m DownloadModel) renderQueueHeader() string {
 	return ansi.Truncate(render("Q", compactStats), width, "…")
 }
 
+// targetDir resolves the download root: YAMDL_DOWNLOAD_DIR, then download_dir
+// from the YAML config, then ./downloads.
+func (m DownloadModel) targetDir() string {
+	return utils.ResolveOutputDirWithFallback(m.outputDir)
+}
+
 func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 	switch m.focusedView {
 	case viewFormatMP3:
@@ -776,7 +784,7 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 			return *m, nil
 		}
 		m.errorMsg = ""
-		targetDir := utils.ResolveOutputDir()
+		targetDir := m.targetDir()
 		if err := utils.EnsureOutputDir(targetDir); err != nil {
 			downloadLogger(m.client).Error("failed to prepare output directory", "error", err, "path", targetDir)
 			m.errorMsg = fmt.Sprintf("Directory error: %v", err)

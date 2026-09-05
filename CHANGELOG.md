@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- add `download_dir` so YAML config can choose the download directory; `YAMDL_DOWNLOAD_DIR` and `--output` still override it
+- add `format` so YAML config can choose the default download format (`mp3` or `flac`); `--format` still overrides it
 - add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
 - add `by_playlist` so playlist and chart tracks are saved as a flat list in a folder named after the playlist, ignoring `by_artist` and `by_album`
 - use playlist position for `{n}` and `{nn}` when downloading a playlist or chart, instead of the original album track number

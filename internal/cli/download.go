@@ -50,6 +50,8 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	options.format = resolveAudioFormat(options.format, cfg.Format)
+	options.output = resolveOutput(options.output, cfg.DownloadDir)
 
 	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
 	defer downloadLogger.Close()

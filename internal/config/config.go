@@ -14,6 +14,7 @@ const (
 	DefaultPath      = "yamdl.yaml"
 	DefaultAlbumMask = "{year} - {title}"
 	DefaultTrackMask = "{artist} - {title}"
+	DefaultFormat    = "mp3"
 )
 
 var placeholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
@@ -34,7 +35,9 @@ var trackPlaceholders = map[string]struct{}{
 
 // Config описывает настройки приложения из YAML.
 type Config struct {
-	Layout Layout `yaml:"layout"`
+	Format      string `yaml:"format"`
+	DownloadDir string `yaml:"download_dir"`
+	Layout      Layout `yaml:"layout"`
 }
 
 // Layout задаёт раскладку скачанных файлов по исполнителям и релизам.
@@ -48,6 +51,7 @@ type Layout struct {
 
 func Default() Config {
 	return Config{
+		Format: DefaultFormat,
 		Layout: Layout{
 			AlbumDirMask:  DefaultAlbumMask,
 			TrackFileMask: DefaultTrackMask,
@@ -75,10 +79,30 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config %s: %w", path, err)
 	}
-	if err := cfg.Layout.normalize(); err != nil {
+	if err := cfg.normalize(); err != nil {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func (c *Config) normalize() error {
+	if err := c.normalizeFormat(); err != nil {
+		return err
+	}
+	c.DownloadDir = strings.TrimSpace(c.DownloadDir)
+	return c.Layout.normalize()
+}
+
+func (c *Config) normalizeFormat() error {
+	c.Format = strings.ToLower(strings.TrimSpace(c.Format))
+	if c.Format == "" {
+		c.Format = DefaultFormat
+		return nil
+	}
+	if c.Format != "mp3" && c.Format != "flac" {
+		return fmt.Errorf("format must be mp3 or flac")
+	}
+	return nil
 }
 
 func (l *Layout) normalize() error {

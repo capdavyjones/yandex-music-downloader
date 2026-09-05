@@ -18,7 +18,16 @@ var ErrOutputPathNotDirectory = errors.New("output path is not a directory")
 // ResolveOutputDir returns the download destination directory configured via the
 // YAMDL_DOWNLOAD_DIR environment variable, falling back to DefaultOutputDir ("./downloads").
 func ResolveOutputDir() string {
+	return ResolveOutputDirWithFallback("")
+}
+
+// ResolveOutputDirWithFallback returns the YAMDL_DOWNLOAD_DIR directory when it is set,
+// otherwise fallback (for example, download_dir from the YAML config), otherwise DefaultOutputDir.
+func ResolveOutputDirWithFallback(fallback string) string {
 	if dir := strings.TrimSpace(os.Getenv(EnvDownloadDir)); dir != "" {
+		return dir
+	}
+	if dir := strings.TrimSpace(fallback); dir != "" {
 		return dir
 	}
 	return DefaultOutputDir

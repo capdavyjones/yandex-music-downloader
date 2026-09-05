@@ -63,12 +63,13 @@ func TestStartUiWithLayoutStoresLayout(t *testing.T) {
 		ByAlbum:       true,
 		AlbumDirMask:  "{year} - {title}",
 		TrackFileMask: "{nn} - {title}",
-	})
+	}, "./music")
 
 	assert.True(t, model.downloadModel.layout.ByArtist)
 	assert.True(t, model.downloadModel.layout.ByAlbum)
 	assert.Equal(t, "{year} - {title}", model.downloadModel.layout.AlbumDirMask)
 	assert.Equal(t, "{nn} - {title}", model.downloadModel.layout.TrackFileMask)
+	assert.Equal(t, "./music", model.downloadModel.outputDir)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {

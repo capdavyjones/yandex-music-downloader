@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -70,6 +71,18 @@ func TestNewDownloadModelStoresDownloadOptions(t *testing.T) {
 	m := NewDownloadModel(nil, ya.DownloadOptions{SkipCover: true})
 
 	assert.True(t, m.downloadOptions.SkipCover)
+	assert.Empty(t, m.outputDir)
+}
+
+func TestDownloadModelTargetDirPrefersEnvOverConfig(t *testing.T) {
+	t.Setenv("YAMDL_DOWNLOAD_DIR", "")
+	assert.Equal(t, "./downloads", NewDownloadModel(nil).targetDir())
+
+	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "./from-config")
+	assert.Equal(t, "./from-config", m.targetDir())
+
+	t.Setenv("YAMDL_DOWNLOAD_DIR", "/env/music")
+	assert.Equal(t, "/env/music", m.targetDir())
 }
 
 func TestAddTracks(t *testing.T) {
