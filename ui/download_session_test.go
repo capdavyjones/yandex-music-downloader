@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 	"ya-music/internal/config"
@@ -311,4 +312,122 @@ func TestDownloadSessionConvertsWorkerPanicToCompletedErrorEvent(t *testing.T) {
 	assert.Equal(t, TrackStatusError, events[1].Progress.status)
 	assert.True(t, events[1].Completed)
 	assert.Contains(t, events[1].Progress.errMsg, "download failure")
+}
+
+type cloneRecordingDownloadClient struct {
+	mu          sync.Mutex
+	downloads   int
+	clones      int
+	downloadDir string
+	cloneDir    string
+}
+
+func (c *cloneRecordingDownloadClient) DownloadTrackWithOptions(
+	track model.Track,
+	outputDir string,
+	_ ya.DownloadOptions,
+) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.downloads++
+	c.downloadDir = outputDir
+	return filepath.Join(outputDir, track.ID.String()+".mp3"), nil
+}
+
+func (c *cloneRecordingDownloadClient) CloneTaggedTrack(
+	src string,
+	destDir string,
+	track model.Track,
+	_ ya.DownloadOptions,
+) (string, error) {
+	dest := filepath.Join(destDir, track.ID.String()+".mp3")
+	if filepath.Clean(src) == filepath.Clean(dest) {
+		return dest, ya.ErrDuplicateDestination
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.clones++
+	c.cloneDir = destDir
+	return dest, nil
+}
+
+func TestDownloadSessionCopyClonesIntoOtherAlbumDirectory(t *testing.T) {
+	client := &cloneRecordingDownloadClient{}
+	outputDir := t.TempDir()
+	session := NewDownloadSession(
+		client,
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		outputDir,
+		SessionConfig{
+			Settings: config.Config{
+				Layout:     config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+				Duplicates: config.DuplicatesCopy,
+			},
+		},
+	)
+
+	var completed []TrackProgress
+	for event := range session.Run([]TrackProgress{
+		{
+			uid: "one",
+			track: &model.Track{
+				ID: model.FlexibleID("1"), Title: "Song", Available: true,
+				Albums: []model.Album{{Title: "Album One"}},
+			},
+			status: TrackStatusReady,
+		},
+		{
+			uid: "two",
+			track: &model.Track{
+				ID: model.FlexibleID("1"), Title: "Song", Available: true,
+				Albums: []model.Album{{Title: "Album Two"}},
+			},
+			status: TrackStatusReady,
+		},
+	}) {
+		if event.Completed {
+			completed = append(completed, event.Progress)
+		}
+	}
+
+	require.Len(t, completed, 2)
+	assert.Equal(t, 1, client.downloads)
+	assert.Equal(t, 1, client.clones)
+	assert.NotEqual(t, client.downloadDir, client.cloneDir)
+	assert.ElementsMatch(t, []string{
+		filepath.Join(outputDir, "Album One"),
+		filepath.Join(outputDir, "Album Two"),
+	}, []string{client.downloadDir, client.cloneDir})
+	assert.Equal(t, TrackStatusDownloaded, completed[0].status)
+	assert.Equal(t, TrackStatusDownloaded, completed[1].status)
+}
+
+func TestDownloadSessionCopyMarksSameDestinationDuplicate(t *testing.T) {
+	client := &cloneRecordingDownloadClient{}
+	session := NewDownloadSession(
+		client,
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		t.TempDir(),
+		SessionConfig{Settings: config.Config{Duplicates: config.DuplicatesCopy}},
+	)
+
+	var completed []TrackProgress
+	track := &model.Track{ID: model.FlexibleID("1"), Title: "Song", Available: true}
+	for event := range session.Run([]TrackProgress{
+		{uid: "one", track: track, status: TrackStatusReady},
+		{uid: "two", track: track, status: TrackStatusReady},
+	}) {
+		if event.Completed {
+			completed = append(completed, event.Progress)
+		}
+	}
+
+	require.Len(t, completed, 2)
+	assert.Equal(t, 1, client.downloads)
+	assert.Equal(t, 0, client.clones)
+	statuses := []TrackStatus{completed[0].status, completed[1].status}
+	assert.Contains(t, statuses, TrackStatusDownloaded)
+	assert.Contains(t, statuses, TrackStatusDuplicate)
 }

@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"ya-music/internal/batch"
 	"ya-music/internal/config"
 	"ya-music/internal/layout"
 	"ya-music/utils"
@@ -25,6 +27,10 @@ type TrackProgress struct {
 
 type downloadTrackClient interface {
 	DownloadTrackWithOptions(model.Track, string, ya.DownloadOptions) (string, error)
+}
+
+type trackCloner interface {
+	CloneTaggedTrack(string, string, model.Track, ya.DownloadOptions) (string, error)
 }
 
 type DownloadSessionEvent struct {
@@ -65,13 +71,16 @@ func NewDownloadSession(
 		cfg = sessionConfig[0]
 	}
 
+	settings := cfg.Settings
+	settings.Duplicates = settings.Duplicates.OrDefault()
+
 	return &DownloadSession{
 		client:         client,
 		logger:         logger,
 		options:        options,
 		outputDir:      outputDir,
 		concurrency:    maxConcurrentDownloads,
-		settings:       cfg.Settings,
+		settings:       settings,
 		folderArtist:   cfg.FolderArtist,
 		folderPlaylist: cfg.FolderPlaylist,
 	}
@@ -87,8 +96,11 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 			"total_tracks", len(work),
 			"max_concurrent_downloads", s.concurrency,
 			"format", s.options.FormatOrDefault(),
+			"duplicates", string(s.settings.Duplicates),
 		)
 
+		published := batch.NewPublishedFiles()
+		cloner, _ := s.client.(trackCloner)
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, s.concurrency)
 		for _, item := range work {
@@ -102,7 +114,7 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 
 			item := item
 			wg.Add(1)
-			go s.runTrack(item, &wg, sem, events)
+			go s.runTrack(item, &wg, sem, events, published, cloner)
 		}
 
 		wg.Wait()
@@ -117,12 +129,24 @@ func (s *DownloadSession) runTrack(
 	wg *sync.WaitGroup,
 	sem chan struct{},
 	events chan<- DownloadSessionEvent,
+	published *batch.PublishedFiles,
+	cloner trackCloner,
 ) {
 	defer wg.Done()
 	trackCtx := utils.NewTrackLogContext(*item.track)
 
+	id := item.track.ID.String()
+	var publishedFile *batch.PublishedFile
+	leader := false
+	if s.settings.Duplicates.CopiesSharedID() && id != "" {
+		publishedFile, leader = published.Claim(id)
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
+			if leader {
+				publishedFile.Complete("")
+			}
 			item.status = TrackStatusError
 			item.errMsg = fmt.Sprintf("panic: %v", r)
 			s.logger.LogTrack(slog.LevelError, trackCtx, "panic recovered",
@@ -134,15 +158,94 @@ func (s *DownloadSession) runTrack(
 		}
 	}()
 
+	if !leader && publishedFile != nil {
+		src := publishedFile.Wait(context.Background())
+		sem <- struct{}{}
+		defer func() { <-sem }()
+		if src != "" && cloner != nil {
+			s.finishClone(item, src, trackCtx, events, cloner)
+			return
+		}
+		s.finishDownload(item, trackCtx, events, nil, false)
+		return
+	}
+
 	sem <- struct{}{}
 	defer func() { <-sem }()
+	s.finishDownload(item, trackCtx, events, publishedFile, leader)
+}
 
+func (s *DownloadSession) finishClone(
+	item TrackProgress,
+	src string,
+	trackCtx utils.TrackLogContext,
+	events chan<- DownloadSessionEvent,
+	cloner trackCloner,
+) {
+	dir, options, ok := s.prepareOutput(item, trackCtx, events)
+	if !ok {
+		return
+	}
+
+	filePath, err := cloner.CloneTaggedTrack(src, dir, *item.track, options)
+	if errors.Is(err, ya.ErrDuplicateDestination) {
+		item.status = TrackStatusDuplicate
+		item.filename = filePath
+		s.logger.LogTrack(slog.LevelInfo, trackCtx, "worker skipped",
+			"stage", "clone_track",
+			"status", item.status.String(),
+			"filename", filePath,
+			"reason", "duplicate",
+		)
+		events <- DownloadSessionEvent{Progress: item, Completed: true}
+		return
+	}
+
+	item.status = TrackStatusDownloading
+	s.logger.LogTrack(slog.LevelInfo, trackCtx, "worker started",
+		"stage", "clone_track",
+	)
+	events <- DownloadSessionEvent{Progress: item}
+	s.applyFileResult(item, trackCtx, events, filePath, err)
+}
+
+func (s *DownloadSession) finishDownload(
+	item TrackProgress,
+	trackCtx utils.TrackLogContext,
+	events chan<- DownloadSessionEvent,
+	publishedFile *batch.PublishedFile,
+	leader bool,
+) {
 	item.status = TrackStatusDownloading
 	s.logger.LogTrack(slog.LevelInfo, trackCtx, "worker started",
 		"stage", "download_track",
 	)
 	events <- DownloadSessionEvent{Progress: item}
 
+	dir, options, ok := s.prepareOutput(item, trackCtx, events)
+	if !ok {
+		if leader {
+			publishedFile.Complete("")
+		}
+		return
+	}
+
+	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, options)
+	if leader {
+		if err == nil || errors.Is(err, ya.ErrTrackAlreadyExists) {
+			publishedFile.Complete(filePath)
+		} else {
+			publishedFile.Complete("")
+		}
+	}
+	s.applyFileResult(item, trackCtx, events, filePath, err)
+}
+
+func (s *DownloadSession) prepareOutput(
+	item TrackProgress,
+	trackCtx utils.TrackLogContext,
+	events chan<- DownloadSessionEvent,
+) (string, ya.DownloadOptions, bool) {
 	dir := layout.TrackOutputDir(s.outputDir, *item.track, layout.Options{
 		Layout:         s.settings.Layout,
 		FolderArtist:   s.folderArtist,
@@ -157,12 +260,21 @@ func (s *DownloadSession) runTrack(
 			"error", err,
 		)
 		events <- DownloadSessionEvent{Progress: item, Completed: true}
-		return
+		return "", ya.DownloadOptions{}, false
 	}
 
 	options := s.options
 	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.settings.Layout.TrackFileMask)
-	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, options)
+	return dir, options, true
+}
+
+func (s *DownloadSession) applyFileResult(
+	item TrackProgress,
+	trackCtx utils.TrackLogContext,
+	events chan<- DownloadSessionEvent,
+	filePath string,
+	err error,
+) {
 	if err != nil {
 		item.status = TrackStatusError
 		item.errMsg = err.Error()

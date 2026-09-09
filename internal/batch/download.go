@@ -52,6 +52,10 @@ type trackDownloader interface {
 	DownloadTrackWithOptions(model.Track, string, ya.DownloadOptions) (string, error)
 }
 
+type trackCloner interface {
+	CloneTaggedTrack(string, string, model.Track, ya.DownloadOptions) (string, error)
+}
+
 type Config struct {
 	Client         trackDownloader
 	Tracks         []model.Track
@@ -65,13 +69,13 @@ type Config struct {
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
-func Run(config Config) <-chan Event {
+func Run(cfg Config) <-chan Event {
 	events := make(chan Event)
-	ctx := config.Context
+	ctx := cfg.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	concurrency := config.Concurrency
+	concurrency := cfg.Concurrency
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
@@ -79,13 +83,16 @@ func Run(config Config) <-chan Event {
 	go func() {
 		defer close(events)
 
-		seenIDs := make(map[string]struct{}, len(config.Tracks))
-		dirs := trackOutputDirs(config)
-		suffixes := filenameSuffixes(config.Tracks, dirs, config.Settings.Layout.TrackFileMask)
+		policy := cfg.Settings.Duplicates.OrDefault()
+		seenIDs := make(map[string]struct{}, len(cfg.Tracks))
+		published := NewPublishedFiles()
+		cloner, _ := cfg.Client.(trackCloner)
+		dirs := trackOutputDirs(cfg)
+		suffixes := filenameSuffixes(cfg.Tracks, dirs, cfg.Settings.Layout.TrackFileMask)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
-		for position, track := range config.Tracks {
+		for position, track := range cfg.Tracks {
 			if ctx.Err() != nil {
 				break
 			}
@@ -99,7 +106,7 @@ func Run(config Config) <-chan Event {
 			}
 
 			id := track.ID.String()
-			if id != "" {
+			if policy == config.DuplicatesID && id != "" {
 				if _, exists := seenIDs[id]; exists {
 					event.Status = StatusSkipped
 					event.Reason = SkipDuplicate
@@ -109,61 +116,53 @@ func Run(config Config) <-chan Event {
 				seenIDs[id] = struct{}{}
 			}
 
-			acquired := false
-			select {
-			case sem <- struct{}{}:
-				acquired = true
-			case <-ctx.Done():
+			options := cfg.Options
+			options.FilenameSuffix = suffixes[position]
+			options.FilenameBase = layout.TrackFilenameBase(track, cfg.Settings.Layout.TrackFileMask)
+			dir := dirs[position]
+
+			var publishedFile *PublishedFile
+			leader := false
+			if policy.CopiesSharedID() && id != "" {
+				publishedFile, leader = published.Claim(id)
+				if !leader {
+					workers.Add(1)
+					go runCopyWaiter(copyWaiterArgs{
+						ctx:     ctx,
+						sem:     sem,
+						events:  events,
+						event:   event,
+						options: options,
+						dir:     dir,
+						client:  cfg.Client,
+						cloner:  cloner,
+						source:  publishedFile,
+						workers: &workers,
+					})
+					continue
+				}
 			}
-			if !acquired {
+
+			if !acquireSlot(ctx, sem) {
+				if leader {
+					publishedFile.Complete("")
+				}
 				break
 			}
 
-			options := config.Options
-			options.FilenameSuffix = suffixes[position]
-			options.FilenameBase = layout.TrackFilenameBase(track, config.Settings.Layout.TrackFileMask)
-			dir := dirs[position]
-
 			workers.Add(1)
-			go func(event Event, options ya.DownloadOptions, dir string) {
-				defer workers.Done()
-				defer func() { <-sem }()
-				defer func() {
-					if recovered := recover(); recovered != nil {
-						event.Status = StatusError
-						event.Reason = fmt.Sprintf("panic: %v", recovered)
-						events <- event
-					}
-				}()
-
-				if ctx.Err() != nil {
-					return
-				}
-
-				event.Status = StatusDownloading
-				events <- event
-
-				if err := utils.CreateDirIfNotExists(dir); err != nil {
-					event.Status = StatusError
-					event.Reason = err.Error()
-					events <- event
-					return
-				}
-
-				filename, err := config.Client.DownloadTrackWithOptions(event.Track, dir, options)
-				if errors.Is(err, ya.ErrTrackAlreadyExists) {
-					event.Status = StatusSkipped
-					event.Reason = SkipAlreadyExists
-					event.Format = formatFromFilename(filename)
-				} else if err != nil {
-					event.Status = StatusError
-					event.Reason = err.Error()
-				} else {
-					event.Status = StatusDone
-					event.Format = formatFromFilename(filename)
-				}
-				events <- event
-			}(event, options, dir)
+			go runDownloadWorker(downloadWorkerArgs{
+				ctx:           ctx,
+				sem:           sem,
+				events:        events,
+				event:         event,
+				options:       options,
+				dir:           dir,
+				client:        cfg.Client,
+				publishedFile: publishedFile,
+				leader:        leader,
+				workers:       &workers,
+			})
 		}
 
 		workers.Wait()
@@ -172,15 +171,195 @@ func Run(config Config) <-chan Event {
 	return events
 }
 
-func trackOutputDirs(config Config) []string {
-	dirs := make([]string, len(config.Tracks))
-	opts := layout.Options{
-		Layout:         config.Settings.Layout,
-		FolderArtist:   config.FolderArtist,
-		FolderPlaylist: config.FolderPlaylist,
+type downloadWorkerArgs struct {
+	ctx           context.Context
+	sem           chan struct{}
+	events        chan<- Event
+	event         Event
+	options       ya.DownloadOptions
+	dir           string
+	client        trackDownloader
+	publishedFile *PublishedFile
+	leader        bool
+	workers       *sync.WaitGroup
+}
+
+func runDownloadWorker(args downloadWorkerArgs) {
+	defer args.workers.Done()
+	defer func() { <-args.sem }()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if args.leader {
+				args.publishedFile.Complete("")
+			}
+			args.event.Status = StatusError
+			args.event.Reason = fmt.Sprintf("panic: %v", recovered)
+			args.events <- args.event
+		}
+	}()
+
+	if args.ctx.Err() != nil {
+		if args.leader {
+			args.publishedFile.Complete("")
+		}
+		return
 	}
-	for i, track := range config.Tracks {
-		dirs[i] = layout.TrackOutputDir(config.OutputDir, track, opts)
+
+	filename, err := downloadToDir(args.ctx, args.events, &args.event, args.dir, args.client, args.options)
+	publishDownloadedFile(args.publishedFile, args.leader, filename, err)
+}
+
+type copyWaiterArgs struct {
+	ctx     context.Context
+	sem     chan struct{}
+	events  chan<- Event
+	event   Event
+	options ya.DownloadOptions
+	dir     string
+	client  trackDownloader
+	cloner  trackCloner
+	source  *PublishedFile
+	workers *sync.WaitGroup
+}
+
+func runCopyWaiter(args copyWaiterArgs) {
+	defer args.workers.Done()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			args.event.Status = StatusError
+			args.event.Reason = fmt.Sprintf("panic: %v", recovered)
+			args.events <- args.event
+		}
+	}()
+
+	src := args.source.Wait(args.ctx)
+	if args.ctx.Err() != nil {
+		return
+	}
+
+	if src != "" && args.cloner != nil {
+		if !acquireSlot(args.ctx, args.sem) {
+			return
+		}
+		defer func() { <-args.sem }()
+		cloneToDir(args.ctx, args.events, &args.event, src, args.dir, args.cloner, args.options)
+		return
+	}
+
+	if !acquireSlot(args.ctx, args.sem) {
+		return
+	}
+	defer func() { <-args.sem }()
+	_, _ = downloadToDir(args.ctx, args.events, &args.event, args.dir, args.client, args.options)
+}
+
+func downloadToDir(
+	ctx context.Context,
+	events chan<- Event,
+	event *Event,
+	dir string,
+	client trackDownloader,
+	options ya.DownloadOptions,
+) (string, error) {
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+
+	event.Status = StatusDownloading
+	events <- *event
+
+	if err := utils.CreateDirIfNotExists(dir); err != nil {
+		event.Status = StatusError
+		event.Reason = err.Error()
+		events <- *event
+		return "", err
+	}
+
+	filename, err := client.DownloadTrackWithOptions(event.Track, dir, options)
+	applyDownloadResult(event, filename, err)
+	events <- *event
+	return filename, err
+}
+
+func cloneToDir(
+	ctx context.Context,
+	events chan<- Event,
+	event *Event,
+	src string,
+	dir string,
+	cloner trackCloner,
+	options ya.DownloadOptions,
+) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	if err := utils.CreateDirIfNotExists(dir); err != nil {
+		event.Status = StatusError
+		event.Reason = err.Error()
+		events <- *event
+		return
+	}
+
+	filename, err := cloner.CloneTaggedTrack(src, dir, event.Track, options)
+	if errors.Is(err, ya.ErrDuplicateDestination) {
+		event.Status = StatusSkipped
+		event.Reason = SkipDuplicate
+		events <- *event
+		return
+	}
+
+	event.Status = StatusDownloading
+	events <- *event
+	applyDownloadResult(event, filename, err)
+	events <- *event
+}
+
+func applyDownloadResult(event *Event, filename string, err error) {
+	if errors.Is(err, ya.ErrTrackAlreadyExists) {
+		event.Status = StatusSkipped
+		event.Reason = SkipAlreadyExists
+		event.Format = formatFromFilename(filename)
+		return
+	}
+	if err != nil {
+		event.Status = StatusError
+		event.Reason = err.Error()
+		return
+	}
+	event.Status = StatusDone
+	event.Format = formatFromFilename(filename)
+}
+
+func publishDownloadedFile(entry *PublishedFile, leader bool, filename string, err error) {
+	if !leader {
+		return
+	}
+	if err == nil || errors.Is(err, ya.ErrTrackAlreadyExists) {
+		entry.Complete(filename)
+		return
+	}
+	entry.Complete("")
+}
+
+func acquireSlot(ctx context.Context, sem chan struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func trackOutputDirs(cfg Config) []string {
+	dirs := make([]string, len(cfg.Tracks))
+	opts := layout.Options{
+		Layout:         cfg.Settings.Layout,
+		FolderArtist:   cfg.FolderArtist,
+		FolderPlaylist: cfg.FolderPlaylist,
+	}
+	for i, track := range cfg.Tracks {
+		dirs[i] = layout.TrackOutputDir(cfg.OutputDir, track, opts)
 	}
 	return dirs
 }

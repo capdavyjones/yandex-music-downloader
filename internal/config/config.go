@@ -11,9 +11,19 @@ import (
 )
 
 const (
-	DefaultPath      = "yamdl.yaml"
-	DefaultAlbumMask = "{year} - {title}"
-	DefaultTrackMask = "{artist} - {title}"
+	DefaultPath       = "yamdl.yaml"
+	DefaultAlbumMask  = "{year} - {title}"
+	DefaultTrackMask  = "{artist} - {title}"
+	DefaultDuplicates = DuplicatesID
+)
+
+// Duplicates defines how repeated occurrences of the same track ID are handled.
+type Duplicates string
+
+const (
+	DuplicatesID   Duplicates = "id"
+	DuplicatesNone Duplicates = "none"
+	DuplicatesCopy Duplicates = "copy"
 )
 
 var placeholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
@@ -34,7 +44,8 @@ var trackPlaceholders = map[string]struct{}{
 
 // Config holds the application settings read from YAML.
 type Config struct {
-	Layout Layout `yaml:"layout"`
+	Duplicates Duplicates `yaml:"duplicates"`
+	Layout     Layout     `yaml:"layout"`
 }
 
 // Layout defines how downloaded files are arranged by artist and release.
@@ -48,6 +59,7 @@ type Layout struct {
 
 func Default() Config {
 	return Config{
+		Duplicates: DefaultDuplicates,
 		Layout: Layout{
 			AlbumDirMask:  DefaultAlbumMask,
 			TrackFileMask: DefaultTrackMask,
@@ -75,10 +87,50 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config %s: %w", path, err)
 	}
-	if err := cfg.Layout.normalize(); err != nil {
+	if err := cfg.normalize(); err != nil {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func (c *Config) normalize() error {
+	if err := c.normalizeDuplicates(); err != nil {
+		return err
+	}
+	return c.Layout.normalize()
+}
+
+func (c *Config) normalizeDuplicates() error {
+	value := Duplicates(strings.ToLower(strings.TrimSpace(string(c.Duplicates))))
+	if value == "" {
+		c.Duplicates = DefaultDuplicates
+		return nil
+	}
+	switch value {
+	case DuplicatesID, DuplicatesNone, DuplicatesCopy:
+		c.Duplicates = value
+		return nil
+	default:
+		return fmt.Errorf("duplicates must be id, none or copy")
+	}
+}
+
+// OrDefault returns id when no policy is set.
+func (d Duplicates) OrDefault() Duplicates {
+	if d == "" {
+		return DefaultDuplicates
+	}
+	return d
+}
+
+// MarksDuplicates reports whether repeated IDs are marked as duplicates up front.
+func (d Duplicates) MarksDuplicates() bool {
+	return d.OrDefault() == DuplicatesID
+}
+
+// CopiesSharedID reports whether an already downloaded file with the same ID should be copied.
+func (d Duplicates) CopiesSharedID() bool {
+	return d.OrDefault() == DuplicatesCopy
 }
 
 func (l *Layout) normalize() error {
