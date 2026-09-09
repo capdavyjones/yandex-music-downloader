@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -94,6 +95,38 @@ func TestAddTracks(t *testing.T) {
 	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[1].status)
 	assert.Equal(t, 2, m.tracksTotalCount)
 	assert.Equal(t, 1, m.downloadableCount)
+}
+
+func TestAddTracksMarksRepeatedIDsAsDuplicates(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.AddTracks([]model.Track{
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		{ID: model.FlexibleID("2"), Title: "Other", Available: true},
+	})
+
+	assert.Equal(t, 1, countStatus(m.tracksProgress, TrackStatusDuplicate))
+	assert.Equal(t, 2, countStatus(m.tracksProgress, TrackStatusReady))
+	assert.Equal(t, 2, m.downloadableCount)
+	for _, tp := range m.tracksProgress {
+		if tp.track.ID.String() == "2" {
+			assert.Equal(t, TrackStatusReady, tp.status)
+		}
+	}
+}
+
+func TestAddTracksNoneAndCopyKeepRepeatedIDsReady(t *testing.T) {
+	for _, policy := range []config.Duplicates{config.DuplicatesNone, config.DuplicatesCopy} {
+		m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Duplicates: policy})
+		m.AddTracks([]model.Track{
+			{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+			{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		})
+
+		assert.Equal(t, TrackStatusReady, m.tracksProgress[0].status, policy)
+		assert.Equal(t, TrackStatusReady, m.tracksProgress[1].status, policy)
+		assert.Equal(t, 2, m.downloadableCount, policy)
+	}
 }
 
 func TestCycleFocusWalksThroughCommandDeck(t *testing.T) {
@@ -829,21 +862,40 @@ func TestSortTracksByTitle(t *testing.T) {
 	assert.Equal(t, "C", tracks[2].track.Title)
 }
 
-func TestFindDuplicates(t *testing.T) {
+func TestFindDuplicatesMarksOnlyRepeatedIDs(t *testing.T) {
 	id1 := uuid.New()
 	tracks := []*TrackProgress{
 		{track: &model.Track{ID: model.FlexibleID(id1.String()), Title: "Same"}},
 		{track: &model.Track{ID: model.FlexibleID(id1.String()), Title: "Same"}},
 		{track: &model.Track{ID: model.FlexibleID(uuid.New().String()), Title: "Same"}},
 		{track: &model.Track{ID: model.FlexibleID(uuid.New().String()), Title: "Unique"}},
+		{track: &model.Track{Title: "No ID"}},
+		{track: &model.Track{Title: "Also No ID"}},
 	}
 
-	findDuplicates(tracks)
+	findDuplicates(tracks, config.DuplicatesID)
 
 	assert.Equal(t, TrackStatusReady, tracks[0].status)
 	assert.Equal(t, TrackStatusDuplicate, tracks[1].status)
-	assert.Equal(t, TrackStatusDuplicate, tracks[2].status)
+	assert.Equal(t, TrackStatusReady, tracks[2].status)
 	assert.Equal(t, TrackStatusReady, tracks[3].status)
+	assert.Equal(t, TrackStatusReady, tracks[4].status)
+	assert.Equal(t, TrackStatusReady, tracks[5].status)
+}
+
+func TestFindDuplicatesNoneAndCopyLeaveTracksReady(t *testing.T) {
+	id := uuid.New().String()
+	for _, policy := range []config.Duplicates{config.DuplicatesNone, config.DuplicatesCopy} {
+		tracks := []*TrackProgress{
+			{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
+			{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
+		}
+
+		findDuplicates(tracks, policy)
+
+		assert.Equal(t, TrackStatusReady, tracks[0].status, policy)
+		assert.Equal(t, TrackStatusReady, tracks[1].status, policy)
+	}
 }
 
 func TestDownloadProgressUpdateAppliesWorkerSnapshot(t *testing.T) {

@@ -15,6 +15,7 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.Equal(t, Default(), cfg)
+	assert.Equal(t, DefaultDuplicates, cfg.Duplicates)
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
 	assert.False(t, cfg.Layout.ByPlaylist)
@@ -98,6 +99,59 @@ layout:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown track_file_mask placeholder {name}")
+}
+
+func TestLoadEmptyDuplicatesDefaultsToID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("duplicates: \"\"\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, DuplicatesID, cfg.Duplicates)
+}
+
+func TestLoadParsesDuplicates(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want Duplicates
+	}{
+		{raw: "id", want: DuplicatesID},
+		{raw: "NONE", want: DuplicatesNone},
+		{raw: " Copy ", want: DuplicatesCopy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "yamdl.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("duplicates: "+tt.raw+"\n"), 0644))
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Duplicates)
+		})
+	}
+}
+
+func TestLoadRejectsUnknownDuplicates(t *testing.T) {
+	tests := []string{"auto", "title", "skip"}
+	for _, raw := range tests {
+		t.Run(raw, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "yamdl.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("duplicates: "+raw+"\n"), 0644))
+
+			_, err := Load(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "duplicates must be id, none or copy")
+		})
+	}
+}
+
+func TestDuplicatesHelpers(t *testing.T) {
+	assert.Equal(t, DuplicatesID, Duplicates("").OrDefault())
+	assert.True(t, DuplicatesID.MarksDuplicates())
+	assert.False(t, DuplicatesNone.MarksDuplicates())
+	assert.False(t, DuplicatesCopy.MarksDuplicates())
+	assert.True(t, DuplicatesCopy.CopiesSharedID())
+	assert.False(t, DuplicatesID.CopiesSharedID())
 }
 
 func TestLoadRejectsInvalidYAML(t *testing.T) {

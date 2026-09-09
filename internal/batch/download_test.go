@@ -392,6 +392,124 @@ func TestRunRecoversWorkerPanicAndContinues(t *testing.T) {
 	assert.Equal(t, ContainerMP3, done.Format)
 }
 
+func TestRunNoneDownloadsRepeatedIDs(t *testing.T) {
+	client := &recordingClient{}
+	events := collect(Run(Config{
+		Client: client,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesNone,
+		},
+		Tracks: []model.Track{
+			{ID: "1", Title: "First", Available: true},
+			{ID: "1", Title: "First", Available: true},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	assert.Equal(t, 2, client.downloadCount())
+	assert.Equal(t, StatusDone, findEvent(t, events, 1, StatusDone).Status)
+	assert.Equal(t, StatusDone, findEvent(t, events, 2, StatusDone).Status)
+}
+
+type cloneRecordingClient struct {
+	mu        sync.Mutex
+	downloads []recordedDownload
+	clones    []recordedClone
+}
+
+type recordedClone struct {
+	src string
+	dir string
+	id  string
+}
+
+func (c *cloneRecordingClient) DownloadTrackWithOptions(track model.Track, outputDir string, options ya.DownloadOptions) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.downloads = append(c.downloads, recordedDownload{id: track.ID.String(), dir: outputDir, options: options})
+	return filepath.Join(outputDir, track.ID.String()+".mp3"), nil
+}
+
+func (c *cloneRecordingClient) CloneTaggedTrack(src string, destDir string, track model.Track, options ya.DownloadOptions) (string, error) {
+	dest := filepath.Join(destDir, track.ID.String()+".mp3")
+	if filepath.Clean(src) == filepath.Clean(dest) {
+		return dest, ya.ErrDuplicateDestination
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.clones = append(c.clones, recordedClone{src: src, dir: destDir, id: track.ID.String()})
+	return dest, nil
+}
+
+func (c *cloneRecordingClient) downloadCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.downloads)
+}
+
+func (c *cloneRecordingClient) cloneCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.clones)
+}
+
+func TestRunCopyClonesIntoOtherAlbumDirectory(t *testing.T) {
+	client := &cloneRecordingClient{}
+	outputDir := t.TempDir()
+	events := collect(Run(Config{
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesCopy,
+			Layout:     config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		},
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Song",
+				Available: true,
+				Albums:    []model.Album{{Title: "Album One"}},
+			},
+			{
+				ID:        "1",
+				Title:     "Song",
+				Available: true,
+				Albums:    []model.Album{{Title: "Album Two"}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	assert.Equal(t, 1, client.downloadCount())
+	assert.Equal(t, 1, client.cloneCount())
+	assert.Equal(t, StatusDone, findEvent(t, events, 1, StatusDone).Status)
+	assert.Equal(t, StatusDone, findEvent(t, events, 2, StatusDone).Status)
+	assert.Equal(t, filepath.Join(outputDir, "Album Two"), client.clones[0].dir)
+}
+
+func TestRunCopySkipsSameDestination(t *testing.T) {
+	client := &cloneRecordingClient{}
+	outputDir := t.TempDir()
+	events := collect(Run(Config{
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesCopy,
+		},
+		Tracks: []model.Track{
+			{ID: "1", Title: "Song", Available: true},
+			{ID: "1", Title: "Song", Available: true},
+		},
+		Concurrency: 1,
+	}))
+
+	assert.Equal(t, 1, client.downloadCount())
+	assert.Equal(t, 0, client.cloneCount())
+	assert.Equal(t, StatusDone, findEvent(t, events, 1, StatusDone).Status)
+	assert.Equal(t, SkipDuplicate, findEvent(t, events, 2, StatusSkipped).Reason)
+}
+
 func collect(events <-chan Event) []Event {
 	var result []Event
 	for event := range events {
