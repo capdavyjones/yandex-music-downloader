@@ -40,6 +40,7 @@ const (
 )
 
 var ErrTrackAlreadyExists = errors.New("track file already exists")
+var ErrDuplicateDestination = errors.New("track already published at destination")
 
 type losslessTrackDownloader interface {
 	GetDownloadInfo(reqCtx utils.RequestLogContext, trackID string, userUID int) (lossless.DownloadInfo, error)

@@ -11,10 +11,20 @@ import (
 )
 
 const (
-	DefaultPath      = "yamdl.yaml"
-	DefaultAlbumMask = "{year} - {title}"
-	DefaultTrackMask = "{artist} - {title}"
-	DefaultFormat    = "mp3"
+	DefaultPath       = "yamdl.yaml"
+	DefaultAlbumMask  = "{year} - {title}"
+	DefaultTrackMask  = "{artist} - {title}"
+	DefaultFormat     = "mp3"
+	DefaultDuplicates = DuplicatesID
+)
+
+// Duplicates задаёт, как обрабатывать повтор одного и того же ID трека.
+type Duplicates string
+
+const (
+	DuplicatesID   Duplicates = "id"
+	DuplicatesNone Duplicates = "none"
+	DuplicatesCopy Duplicates = "copy"
 )
 
 var placeholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
@@ -35,9 +45,10 @@ var trackPlaceholders = map[string]struct{}{
 
 // Config описывает настройки приложения из YAML.
 type Config struct {
-	Format      string `yaml:"format"`
-	DownloadDir string `yaml:"download_dir"`
-	Layout      Layout `yaml:"layout"`
+	Format      string     `yaml:"format"`
+	DownloadDir string     `yaml:"download_dir"`
+	Duplicates  Duplicates `yaml:"duplicates"`
+	Layout      Layout     `yaml:"layout"`
 }
 
 // Layout задаёт раскладку скачанных файлов по исполнителям и релизам.
@@ -51,7 +62,8 @@ type Layout struct {
 
 func Default() Config {
 	return Config{
-		Format: DefaultFormat,
+		Format:     DefaultFormat,
+		Duplicates: DefaultDuplicates,
 		Layout: Layout{
 			AlbumDirMask:  DefaultAlbumMask,
 			TrackFileMask: DefaultTrackMask,
@@ -90,6 +102,9 @@ func (c *Config) normalize() error {
 		return err
 	}
 	c.DownloadDir = strings.TrimSpace(c.DownloadDir)
+	if err := c.normalizeDuplicates(); err != nil {
+		return err
+	}
 	return c.Layout.normalize()
 }
 
@@ -103,6 +118,39 @@ func (c *Config) normalizeFormat() error {
 		return fmt.Errorf("format must be mp3 or flac")
 	}
 	return nil
+}
+
+func (c *Config) normalizeDuplicates() error {
+	value := Duplicates(strings.ToLower(strings.TrimSpace(string(c.Duplicates))))
+	if value == "" {
+		c.Duplicates = DefaultDuplicates
+		return nil
+	}
+	switch value {
+	case DuplicatesID, DuplicatesNone, DuplicatesCopy:
+		c.Duplicates = value
+		return nil
+	default:
+		return fmt.Errorf("duplicates must be id, none or copy")
+	}
+}
+
+// OrDefault возвращает id, если политика не задана.
+func (d Duplicates) OrDefault() Duplicates {
+	if d == "" {
+		return DefaultDuplicates
+	}
+	return d
+}
+
+// MarksDuplicates сообщает, нужно ли заранее помечать повторы ID как дубликаты.
+func (d Duplicates) MarksDuplicates() bool {
+	return d.OrDefault() == DuplicatesID
+}
+
+// CopiesSharedID сообщает, нужно ли копировать уже скачанный файл с тем же ID.
+func (d Duplicates) CopiesSharedID() bool {
+	return d.OrDefault() == DuplicatesCopy
 }
 
 func (l *Layout) normalize() error {

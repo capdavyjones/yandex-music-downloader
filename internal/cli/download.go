@@ -99,6 +99,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 			Layout:         cfg.Layout,
 			FolderArtist:   preflight.folderArtist,
 			FolderPlaylist: preflight.folderPlaylist,
+			Duplicates:     cfg.Duplicates,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,

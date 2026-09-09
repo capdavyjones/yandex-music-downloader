@@ -162,6 +162,7 @@ type DownloadModel struct {
 	downloadOptions ya.DownloadOptions
 	layout          config.Layout
 	outputDir       string
+	duplicates      config.Duplicates
 	folderArtist    string
 	folderPlaylist  string
 
@@ -198,10 +199,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
-	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{}, "")
+	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{}, "", config.DuplicatesID)
 }
 
-func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout, output string) DownloadModel {
+func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout, output string, duplicates config.Duplicates) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -235,6 +236,7 @@ func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, l
 		downloadOptions:   options,
 		layout:            layout,
 		outputDir:         output,
+		duplicates:        duplicates.OrDefault(),
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -312,7 +314,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 		m.tracksProgress = append(m.tracksProgress, progress)
 	}
 
-	findDuplicates(m.tracksProgress)
+	findDuplicates(m.tracksProgress, m.duplicates)
 	sortTracksByTitle(m.tracksProgress)
 
 	m.updateTrackList()
@@ -586,12 +588,14 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	layoutCfg := m.layout
 	folderArtist := m.folderArtist
 	folderPlaylist := m.folderPlaylist
+	duplicates := m.duplicates
 
 	return func() tea.Msg {
 		session := NewDownloadSession(client, logger, options, targetDir, SessionConfig{
 			Layout:         layoutCfg,
 			FolderArtist:   folderArtist,
 			FolderPlaylist: folderPlaylist,
+			Duplicates:     duplicates,
 		})
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
@@ -1204,24 +1208,22 @@ func sortTracksByTitle(tracks []*TrackProgress) {
 	})
 }
 
-func findDuplicates(tracks []*TrackProgress) {
-	seen := make(map[string]struct{}, len(tracks)*2)
+func findDuplicates(tracks []*TrackProgress, policy config.Duplicates) {
+	if !policy.MarksDuplicates() {
+		return
+	}
 
+	seen := make(map[string]struct{}, len(tracks))
 	for _, tp := range tracks {
 		idKey := tp.track.ID.String()
-		nameKey := tp.track.FullTitle() + " - " + tp.track.ArtistsString()
-
+		if idKey == "" {
+			continue
+		}
 		if _, exists := seen[idKey]; exists {
 			tp.status = TrackStatusDuplicate
 			continue
 		}
-		if _, exists := seen[nameKey]; exists {
-			tp.status = TrackStatusDuplicate
-			continue
-		}
-
 		seen[idKey] = struct{}{}
-		seen[nameKey] = struct{}{}
 	}
 }
 
