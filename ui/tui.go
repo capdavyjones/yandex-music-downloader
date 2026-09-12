@@ -71,9 +71,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SourceSubmitMsg:
 		m.initState = UiStateDownloading
-		m.downloadModel.AddTracks(msg.Tracks)
 		m.downloadModel.folderArtist = msg.FolderArtist
 		m.downloadModel.folderPlaylist = msg.FolderPlaylist
+		m.downloadModel.AddTracks(msg.Tracks)
 		m.resizeToWindow()
 
 		cmds = append(cmds, m.downloadModel.Init())

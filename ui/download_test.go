@@ -39,6 +39,48 @@ func addReadyTracks(m *DownloadModel, count int) {
 	m.AddTracks(tracks)
 }
 
+func albumTrack(id, title, albumID, albumTitle string, year, volume, index int) model.Track {
+	return model.Track{
+		ID:        model.FlexibleID(id),
+		Title:     title,
+		Available: true,
+		Albums: []model.Album{{
+			ID:    model.FlexibleID(albumID),
+			Title: albumTitle,
+			Year:  year,
+			TrackPosition: model.TrackPosition{
+				Volume: volume,
+				Index:  index,
+			},
+		}},
+	}
+}
+
+func listItemLabels(items []list.Item) []string {
+	labels := make([]string, 0, len(items))
+	for _, item := range items {
+		switch it := item.(type) {
+		case AlbumHeaderItem:
+			labels = append(labels, "album:"+it.Title())
+		case TrackListItem:
+			labels = append(labels, "track:"+it.Title())
+		}
+	}
+	return labels
+}
+
+func trackNumberLabels(items []list.Item) []string {
+	var labels []string
+	for _, item := range items {
+		track, ok := item.(TrackListItem)
+		if !ok {
+			continue
+		}
+		labels = append(labels, strings.TrimSpace(track.numberLabel))
+	}
+	return labels
+}
+
 func TestReset(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.downloadOptions = ya.DownloadOptions{SkipCover: true}
@@ -872,6 +914,123 @@ func TestSortTracksByTitle(t *testing.T) {
 	assert.Equal(t, "A", tracks[0].track.Title)
 	assert.Equal(t, "B", tracks[1].track.Title)
 	assert.Equal(t, "C", tracks[2].track.Title)
+}
+
+func TestAddTracksGroupsByAlbumWhenFolderArtistSet(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
+		albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+		albumTrack("3", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, 3, m.tracksTotalCount)
+	assert.Equal(t, []string{
+		"album:1980 - Zebra",
+		"track:Dancing",
+		"track:Mamma",
+		"album:1975 - Arrival",
+		"track:SOS",
+	}, listItemLabels(m.trackList.Items()))
+}
+
+func TestAddTracksKeepsDiscOrderInsideAlbum(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "DiscTwo", "z", "Zebra", 1980, 2, 1),
+		albumTrack("2", "Late", "z", "Zebra", 1980, 1, 2),
+		albumTrack("3", "First", "z", "Zebra", 1980, 1, 1),
+	})
+
+	assert.Equal(t, []string{
+		"album:1980 - Zebra",
+		"track:First",
+		"track:Late",
+		"track:DiscTwo",
+	}, listItemLabels(m.trackList.Items()))
+	assert.Equal(t, []string{"01.", "02.", "2.01."}, trackNumberLabels(m.trackList.Items()))
+}
+
+func TestAddTracksUsesAlbumTrackNumbers(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
+		albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+	})
+
+	assert.Equal(t, []string{"01.", "02."}, trackNumberLabels(m.trackList.Items()))
+}
+
+func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.AddTracks([]model.Track{
+		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
+		albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+		albumTrack("3", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, []string{
+		"track:Dancing",
+		"track:Mamma",
+		"track:SOS",
+	}, listItemLabels(m.trackList.Items()))
+	assert.Empty(t, m.trackList.Items()[0].(TrackListItem).numberLabel)
+}
+
+func TestAddTracksSkipsHeaderWhenAlbumTitleEmpty(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		{
+			ID:        model.FlexibleID("1"),
+			Title:     "Loose",
+			Available: true,
+		},
+		albumTrack("2", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, []string{
+		"track:Loose",
+		"album:1975 - Arrival",
+		"track:SOS",
+	}, listItemLabels(m.trackList.Items()))
+}
+
+func TestHideDuplicatesHidesEmptyAlbumGroups(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("same", "Super", "z", "Zebra", 1980, 1, 1),
+		albumTrack("same", "Super", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, []string{
+		"album:1980 - Zebra",
+		"track:Super",
+		"album:1975 - Arrival",
+		"track:Super",
+	}, listItemLabels(m.trackList.Items()))
+
+	m.hideDuplicates = true
+	m.updateTrackList()
+
+	assert.Equal(t, []string{
+		"album:1980 - Zebra",
+		"track:Super",
+	}, listItemLabels(m.trackList.Items()))
+}
+
+func TestSelectedAlbumHeaderShowsAlbumTitle(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, "1975 - Arrival", m.selectedTrackInfo)
 }
 
 func TestFindDuplicatesMarksOnlyRepeatedIDs(t *testing.T) {
