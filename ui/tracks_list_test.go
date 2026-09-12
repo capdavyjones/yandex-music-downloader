@@ -187,6 +187,100 @@ func TestFormatTrackNumberAddsLeadingZeroOnlyToSingleDigits(t *testing.T) {
 	assert.Equal(t, "100. ", formatTrackNumber(99, 3))
 }
 
+func TestAlbumHeaderItemRenderShowsLabelAndFillsWidth(t *testing.T) {
+	items := []list.Item{
+		AlbumHeaderItem{label: "1975 - Arrival", title: "Arrival", year: 1975},
+		TrackListItem{uid: "item", track: &model.Track{Title: "Mamma Mia"}, status: TrackStatusReady},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 0, items[0])
+
+	rendered := ansi.Strip(row.String())
+	assert.Contains(t, rendered, "1975 - Arrival")
+	assert.NotContains(t, rendered, "Ready")
+	assert.Equal(t, 80, ansi.StringWidth(rendered))
+}
+
+func TestTrackListItemUpdateDoesNotPanicOnHeader(t *testing.T) {
+	items := []list.Item{
+		AlbumHeaderItem{label: "1975 - Arrival", title: "Arrival", year: 1975},
+		TrackListItem{uid: "t1", track: &model.Track{Title: "Mamma Mia"}, status: TrackStatusReady},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	modelList.Select(0)
+
+	assert.NotPanics(t, func() {
+		cmd := TrackListItem{}.Update(keyText("j"), &modelList)
+		if cmd != nil {
+			msg := cmd()
+			assert.Equal(t, ListSelectedItemMsg("1975 - Arrival"), msg)
+		}
+	})
+}
+
+func TestTrackListItemRenderUsesAlbumNumberLabel(t *testing.T) {
+	items := []list.Item{
+		AlbumHeaderItem{label: "1975 - Arrival", title: "Arrival", year: 1975},
+		TrackListItem{
+			uid:         "item",
+			track:       &model.Track{Title: "Mamma Mia"},
+			status:      TrackStatusReady,
+			numberLabel: "01. ",
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 1, items[1])
+
+	rendered := ansi.Strip(row.String())
+	assert.Contains(t, rendered, "01.")
+	assert.NotContains(t, rendered, "02.")
+}
+
+func TestTrackListItemRenderKeepsStatusAlignedWithAlbumNumbers(t *testing.T) {
+	items := []list.Item{
+		TrackListItem{
+			uid:         "one",
+			track:       &model.Track{Title: "First"},
+			status:      TrackStatusReady,
+			numberLabel: "01. ",
+		},
+		TrackListItem{
+			uid:         "two",
+			track:       &model.Track{Title: "Disc Two"},
+			status:      TrackStatusReady,
+			numberLabel: "2.01. ",
+		},
+	}
+	padTrackNumberLabels(items)
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var first bytes.Buffer
+	renderer.Render(&first, modelList, 0, items[0])
+	var second bytes.Buffer
+	renderer.Render(&second, modelList, 1, items[1])
+
+	assert.Equal(t, strings.Index(ansi.Strip(first.String()), "Ready"), strings.Index(ansi.Strip(second.String()), "Ready"))
+}
+
+func TestTrackListItemFilterValueIncludesAlbumTitle(t *testing.T) {
+	item := TrackListItem{
+		track: &model.Track{
+			Title:  "Mamma Mia",
+			Albums: []model.Album{{Title: "Arrival"}},
+		},
+	}
+
+	assert.Contains(t, item.FilterValue(), "Mamma Mia")
+	assert.Contains(t, item.FilterValue(), "Arrival")
+}
+
 func TestTrackListItemRenderHandlesWideTitleCharacters(t *testing.T) {
 	items := []list.Item{
 		TrackListItem{

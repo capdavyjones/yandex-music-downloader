@@ -216,6 +216,30 @@ func TestSourceSubmitStoresFolderArtist(t *testing.T) {
 	assert.Equal(t, "ABBA", updated.downloadModel.folderArtist)
 }
 
+func TestSourceSubmitGroupsArtistTracksByAlbum(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
+			albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+			albumTrack("3", "SOS", "a", "Arrival", 1975, 1, 1),
+		},
+		FolderArtist: "ABBA",
+	})
+	updated := updatedModel.(Model)
+
+	assert.Equal(t, "ABBA", updated.downloadModel.folderArtist)
+	assert.Equal(t, 3, updated.downloadModel.tracksTotalCount)
+	assert.Equal(t, []string{
+		"album:1980 - Zebra",
+		"track:Dancing",
+		"track:Mamma",
+		"album:1975 - Arrival",
+		"track:SOS",
+	}, listItemLabels(updated.downloadModel.trackList.Items()))
+}
+
 func TestSourceSubmitStoresFolderPlaylist(t *testing.T) {
 	m := StartUi(nil)
 
