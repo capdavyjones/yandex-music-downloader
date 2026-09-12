@@ -20,10 +20,12 @@ var (
 	// Unselected styles
 	trackNumberStyle = lipgloss.NewStyle().PaddingLeft(4)
 	descriptionStyle = lipgloss.NewStyle().Foreground(mutedColor)
+	albumHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(accentColor)
 
 	// Selected styles
 	selectedTrackNumberStyle      = lipgloss.NewStyle().Foreground(accentColor).PaddingLeft(2).Background(focusSurfaceColor).Bold(true)
 	selectedTrackDescriptionStyle = lipgloss.NewStyle().Foreground(secondaryTextColor).Background(focusSurfaceColor)
+	selectedAlbumHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(primaryTextColor).Background(focusSurfaceColor)
 
 	// Status styles for unselected items
 	readyStatusStyle         = greenForeground
@@ -75,18 +77,53 @@ type TrackListItem struct {
 	status            TrackStatus
 	format            string
 	trackNumberDigits int
+	numberLabel       string
+}
+
+type AlbumHeaderItem struct {
+	label string
+	title string
+	year  int
 }
 
 func (t TrackListItem) FilterValue() string {
-	return t.track.FullTitle()
+	if t.track == nil {
+		return ""
+	}
+	title := t.track.FullTitle()
+	if album := albumTitleOf(t.track); album != "" {
+		return strings.TrimSpace(title + " " + album)
+	}
+	return title
 }
 
 func (t TrackListItem) Title() string {
+	if t.track == nil {
+		return ""
+	}
 	return t.track.FullTitle()
 }
 
 func (t TrackListItem) Description() string {
+	if t.track == nil {
+		return ""
+	}
 	return t.track.ArtistsString()
+}
+
+func (a AlbumHeaderItem) FilterValue() string {
+	return strings.TrimSpace(a.title + " " + a.Title())
+}
+
+func (a AlbumHeaderItem) Title() string {
+	if strings.TrimSpace(a.label) != "" {
+		return a.label
+	}
+	return a.title
+}
+
+func (a AlbumHeaderItem) Description() string {
+	return ""
 }
 
 func (t TrackListItem) Height() int  { return 1 }
@@ -96,27 +133,61 @@ func (t TrackListItem) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		return nil
 	}
 
-	currItem := m.SelectedItem().(TrackListItem)
-
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k", "down", "j", "left", "right", "l", "h", "g", "G", "end", "home", "pgup", "pgdn":
-			return func() tea.Msg {
-				return ListSelectedItemMsg(currItem.uid)
-			}
+			return selectedListItemMsg(m.SelectedItem())
 		}
 	}
 
 	return nil
 }
 
+func selectedListItemMsg(item list.Item) tea.Cmd {
+	switch item := item.(type) {
+	case TrackListItem:
+		return func() tea.Msg {
+			return ListSelectedItemMsg(item.uid)
+		}
+	case AlbumHeaderItem:
+		return func() tea.Msg {
+			return ListSelectedItemMsg(item.Title())
+		}
+	default:
+		return nil
+	}
+}
+
 func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	item, ok := listItem.(TrackListItem)
-	if !ok {
+	switch item := listItem.(type) {
+	case AlbumHeaderItem:
+		renderAlbumHeader(w, m, index, item)
 		return
+	case TrackListItem:
+		t.renderTrack(w, m, index, item)
+	}
+}
+
+func renderAlbumHeader(w io.Writer, m list.Model, index int, item AlbumHeaderItem) {
+	isSelected := index == m.Index()
+	prefix := "  "
+	style := albumHeaderStyle
+	if isSelected {
+		prefix = "> "
+		style = selectedAlbumHeaderStyle
 	}
 
+	width := m.Width()
+	if width < 0 {
+		width = 0
+	}
+	label := truncateToWidth(item.Title(), max(0, width-runewidth.StringWidth(prefix)))
+	line := padToWidth(prefix+label, width)
+	fmt.Fprint(w, style.Render(line))
+}
+
+func (t TrackListItem) renderTrack(w io.Writer, m list.Model, index int, item TrackListItem) {
 	title := item.Title()
 	desc := item.Description()
 
@@ -140,11 +211,14 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 
 	isSelected := index == m.Index()
 
-	trackNumberDigits := item.trackNumberDigits
-	if trackNumberDigits <= 0 {
-		trackNumberDigits = trackNumberColumnDigits(len(m.Items()))
+	trackNumber := item.numberLabel
+	if trackNumber == "" {
+		trackNumberDigits := item.trackNumberDigits
+		if trackNumberDigits <= 0 {
+			trackNumberDigits = trackNumberColumnDigits(len(m.Items()))
+		}
+		trackNumber = formatTrackNumber(index, trackNumberDigits)
 	}
-	trackNumber := formatTrackNumber(index, trackNumberDigits)
 	trackNumberStyleToUse := trackNumberStyle
 	if isSelected {
 		trackNumberStyleToUse = selectedTrackNumberStyle
@@ -275,4 +349,54 @@ func formatTrackNumber(index int, numberDigits int) string {
 		number = strings.Repeat(" ", columnWidth-width) + number
 	}
 	return number
+}
+
+func albumTitleOf(track *model.Track) string {
+	if track == nil || len(track.Albums) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(track.Albums[0].Title)
+}
+
+func albumTrackNumberLabel(track *model.Track, fallback int) string {
+	index := fallback
+	volume := 0
+	if track != nil && len(track.Albums) > 0 {
+		pos := track.Albums[0].TrackPosition
+		if pos.Index > 0 {
+			index = pos.Index
+		}
+		volume = pos.Volume
+	}
+	if index <= 0 {
+		index = fallback
+	}
+	if volume > 1 {
+		return fmt.Sprintf("%d.%02d. ", volume, index)
+	}
+	return fmt.Sprintf("%02d. ", index)
+}
+
+func padTrackNumberLabels(items []list.Item) {
+	maxWidth := 0
+	for _, item := range items {
+		track, ok := item.(TrackListItem)
+		if !ok || track.numberLabel == "" {
+			continue
+		}
+		if width := runewidth.StringWidth(track.numberLabel); width > maxWidth {
+			maxWidth = width
+		}
+	}
+	if maxWidth == 0 {
+		return
+	}
+	for i, item := range items {
+		track, ok := item.(TrackListItem)
+		if !ok || track.numberLabel == "" {
+			continue
+		}
+		track.numberLabel = padToWidth(track.numberLabel, maxWidth)
+		items[i] = track
+	}
 }

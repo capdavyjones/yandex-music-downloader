@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"ya-music/internal/config"
+	"ya-music/internal/layout"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -315,15 +316,16 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	}
 
 	findDuplicates(m.tracksProgress)
-	sortTracksByTitle(m.tracksProgress)
+	if m.groupsByAlbum() {
+		sortTracksByAlbum(m.tracksProgress)
+	} else {
+		sortTracksByTitle(m.tracksProgress)
+	}
 
 	m.updateTrackList()
 	m.tracksTotalCount = len(m.tracksProgress)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
-
-	if item, ok := m.trackList.SelectedItem().(TrackListItem); ok {
-		m.selectedTrackInfo = m.getTrackInfo(item.uid)
-	}
+	m.selectedTrackInfo = m.selectedItemInfo()
 }
 
 func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
@@ -463,9 +465,7 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		}
 
 	case ListSelectedItemMsg, list.FilterMatchesMsg:
-		if item, ok := m.trackList.SelectedItem().(TrackListItem); ok {
-			m.selectedTrackInfo = m.getTrackInfo(item.uid)
-		}
+		m.selectedTrackInfo = m.selectedItemInfo()
 	}
 
 	cmds = append(cmds, cmd)
@@ -665,7 +665,16 @@ func (m *DownloadModel) resetState() {
 	m.updateTrackList()
 }
 
+func (m *DownloadModel) groupsByAlbum() bool {
+	return strings.TrimSpace(m.folderArtist) != ""
+}
+
 func (m *DownloadModel) updateTrackList() {
+	if m.groupsByAlbum() {
+		m.trackList.SetItems(m.groupedTrackListItems())
+		return
+	}
+
 	items := make([]list.Item, 0, len(m.tracksProgress))
 	trackNumberDigits := trackNumberColumnDigits(len(m.tracksProgress))
 	for _, tp := range m.tracksProgress {
@@ -681,6 +690,55 @@ func (m *DownloadModel) updateTrackList() {
 		})
 	}
 	m.trackList.SetItems(items)
+}
+
+func (m *DownloadModel) groupedTrackListItems() []list.Item {
+	items := make([]list.Item, 0, len(m.tracksProgress)+8)
+	lastKey := "\x00"
+	fallback := 0
+
+	for _, tp := range m.tracksProgress {
+		if m.hideDuplicates && tp.status == TrackStatusDuplicate {
+			continue
+		}
+
+		key, title, year := albumGroupOf(tp.track)
+		if title != "" && key != lastKey {
+			items = append(items, AlbumHeaderItem{
+				label: layout.ApplyAlbumDirMask(config.DefaultAlbumMask, year, title),
+				title: title,
+				year:  year,
+			})
+			lastKey = key
+			fallback = 0
+		}
+
+		fallback++
+		items = append(items, TrackListItem{
+			uid:         tp.uid,
+			track:       tp.track,
+			status:      tp.status,
+			format:      tp.format,
+			numberLabel: albumTrackNumberLabel(tp.track, fallback),
+		})
+	}
+	padTrackNumberLabels(items)
+	return items
+}
+
+func (m *DownloadModel) selectedItemInfo() string {
+	switch item := m.trackList.SelectedItem().(type) {
+	case TrackListItem:
+		return m.getTrackInfo(item.uid)
+	case AlbumHeaderItem:
+		info := item.Title()
+		if len(info) > 70 {
+			info = info[:67] + "..."
+		}
+		return strings.TrimSpace(info)
+	default:
+		return ""
+	}
 }
 
 func (m *DownloadModel) getTrackInfo(uid string) string {
@@ -1236,6 +1294,55 @@ func sortTracksByTitle(tracks []*TrackProgress) {
 	sort.Slice(tracks, func(i, j int) bool {
 		return tracks[i].track.FullTitle() < tracks[j].track.FullTitle()
 	})
+}
+
+func sortTracksByAlbum(tracks []*TrackProgress) {
+	firstSeen := make(map[string]int, len(tracks))
+	order := 0
+	for _, tp := range tracks {
+		key, _, _ := albumGroupOf(tp.track)
+		if _, ok := firstSeen[key]; !ok {
+			firstSeen[key] = order
+			order++
+		}
+	}
+
+	sort.SliceStable(tracks, func(i, j int) bool {
+		ki, _, _ := albumGroupOf(tracks[i].track)
+		kj, _, _ := albumGroupOf(tracks[j].track)
+		if firstSeen[ki] != firstSeen[kj] {
+			return firstSeen[ki] < firstSeen[kj]
+		}
+		pi := trackPositionOf(tracks[i].track)
+		pj := trackPositionOf(tracks[j].track)
+		if pi.Volume != pj.Volume {
+			return pi.Volume < pj.Volume
+		}
+		if pi.Index != pj.Index {
+			return pi.Index < pj.Index
+		}
+		return false
+	})
+}
+
+func albumGroupOf(track *model.Track) (key, title string, year int) {
+	if track == nil || len(track.Albums) == 0 {
+		return "", "", 0
+	}
+	album := track.Albums[0]
+	title = strings.TrimSpace(album.Title)
+	year = album.Year
+	if id := album.ID.String(); id != "" {
+		return "id:" + id, title, year
+	}
+	return "title:" + title + "\x00" + fmt.Sprintf("%d", year), title, year
+}
+
+func trackPositionOf(track *model.Track) model.TrackPosition {
+	if track == nil || len(track.Albums) == 0 {
+		return model.TrackPosition{}
+	}
+	return track.Albums[0].TrackPosition
 }
 
 func findDuplicates(tracks []*TrackProgress) {
