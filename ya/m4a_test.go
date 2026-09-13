@@ -240,7 +240,7 @@ func TestWriteM4ATagsPatchesCO64OffsetsWhenMoovPrecedesMdat(t *testing.T) {
 	assertMP4ChunkOffsetsRemainRelative(t, beforeOffsets, readMP4ChunkOffsetLayout(t, path))
 }
 
-func TestWriteM4ATagsPreservesExistingCoverArt(t *testing.T) {
+func TestWriteM4ATagsReplacesExistingCoverArt(t *testing.T) {
 	path := copyFixture(t, "taggable-stco.m4a")
 	existingCover := onePixelJPEG()
 	ourCover := onePixelPNG()
@@ -259,18 +259,9 @@ func TestWriteM4ATagsPreservesExistingCoverArt(t *testing.T) {
 
 	file := openTaggedM4A(t, path)
 	images := file.Images()
-	require.Len(t, images, 2)
-
-	gotData := make([][]byte, 0, len(images))
-	gotMIME := make([]string, 0, len(images))
-	for _, img := range images {
-		gotData = append(gotData, img.Data)
-		gotMIME = append(gotMIME, img.MIME)
-	}
-	assert.Contains(t, gotData, existingCover)
-	assert.Contains(t, gotData, ourCover)
-	assert.Contains(t, gotMIME, "image/jpeg")
-	assert.Contains(t, gotMIME, "image/png")
+	require.Len(t, images, 1)
+	assert.Equal(t, "image/png", images[0].MIME)
+	assert.Equal(t, ourCover, images[0].Data)
 }
 
 func TestWriteM4ATagsPreservesCO64(t *testing.T) {

@@ -21,6 +21,17 @@ func TestBuildCoverURLUsesTrackCover(t *testing.T) {
 	assert.Equal(t, "https://avatars.yandex.net/get-music-content/123/400x400", buildCoverURL(track))
 }
 
+func TestBuildCoverURLPrefersAlbumCoverOverTrackCover(t *testing.T) {
+	track := model.Track{
+		CoverURI: "avatars.yandex.net/get-music-content/track/%%",
+		Albums: []model.Album{
+			{CoverURI: "avatars.yandex.net/get-music-content/album/%%"},
+		},
+	}
+
+	assert.Equal(t, "https://avatars.yandex.net/get-music-content/album/400x400", buildCoverURL(track))
+}
+
 func TestBuildCoverURLFallsBackToAlbumCover(t *testing.T) {
 	track := model.Track{
 		Albums: []model.Album{

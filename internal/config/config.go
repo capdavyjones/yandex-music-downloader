@@ -124,8 +124,14 @@ func (d Duplicates) OrDefault() Duplicates {
 }
 
 // MarksDuplicates reports whether repeated IDs are marked as duplicates up front.
+// With id repeated entries are skipped; with copy they stay queued to be copied.
 func (d Duplicates) MarksDuplicates() bool {
-	return d.OrDefault() == DuplicatesID
+	switch d.OrDefault() {
+	case DuplicatesID, DuplicatesCopy:
+		return true
+	default:
+		return false
+	}
 }
 
 // CopiesSharedID reports whether an already downloaded file with the same ID should be copied.

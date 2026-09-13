@@ -245,6 +245,28 @@ func TestResolveArtistFlattensAlbumsAndSetsFolderArtist(t *testing.T) {
 	assert.Equal(t, 1975, result.Tracks[1].Albums[0].Year)
 }
 
+func TestAttachAlbumMetaUsesParentCoverURI(t *testing.T) {
+	tracks := attachAlbumMeta([]model.Track{{
+		ID:       model.FlexibleID("1"),
+		Title:    "Проказник скоморох",
+		CoverURI: "avatars.yandex.net/get-music-content/track-cover/%%",
+		Albums: []model.Album{{
+			ID:       model.FlexibleID("old"),
+			Title:    "Камнем по голове",
+			CoverURI: "avatars.yandex.net/get-music-content/wrong/%%",
+		}},
+	}}, model.Album{
+		ID:       model.FlexibleID("1996"),
+		Title:    "Камнем по голове",
+		Year:     1996,
+		CoverURI: "avatars.yandex.net/get-music-content/album-1996/%%",
+	})
+
+	require.Len(t, tracks, 1)
+	assert.Equal(t, "avatars.yandex.net/get-music-content/album-1996/%%", tracks[0].Albums[0].CoverURI)
+	assert.Equal(t, "Камнем по голове", tracks[0].Albums[0].Title)
+}
+
 func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {
 	client := &fakeSourceClient{
 		artist:       &model.Artist{Name: "ABBA"},

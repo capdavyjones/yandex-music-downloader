@@ -80,9 +80,14 @@ func (c *Client) startCoverDownload(track model.Track, audioFilename string, opt
 }
 
 func buildCoverURL(track model.Track) string {
-	uri := strings.TrimSpace(track.CoverURI)
-	if uri == "" && len(track.Albums) > 0 {
+	// Prefer the cover of the album being tagged over track.CoverURI:
+	// for one ID on several releases the API often returns the track's "canonical" cover.
+	uri := ""
+	if len(track.Albums) > 0 {
 		uri = strings.TrimSpace(track.Albums[0].CoverURI)
+	}
+	if uri == "" {
+		uri = strings.TrimSpace(track.CoverURI)
 	}
 	if uri == "" {
 		return ""

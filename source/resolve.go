@@ -251,6 +251,10 @@ func mergeTrackAlbum(existing []model.Album, parent model.Album) []model.Album {
 	if current.ID.String() == "" {
 		current.ID = parent.ID
 	}
+	// The parent's cover is the cover of the release the track is saved under.
+	if strings.TrimSpace(parent.CoverURI) != "" {
+		current.CoverURI = parent.CoverURI
+	}
 	existing[0] = current
 	return existing
 }
