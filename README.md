@@ -126,7 +126,7 @@ downloads/
     03 - SOS.m4a
 ```
 
-Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled.
+Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). In the TUI, the artist discography tree labels albums and tracks with the same `album_dir_mask` and `track_file_mask` values used for folders and filenames. The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled. With `duplicates: copy` and `by_album: true`, a track that appears on several of those albums is stored in each album folder with that album's tags.
 
 ## Authentication Token
 

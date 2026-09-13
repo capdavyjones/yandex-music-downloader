@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -905,18 +906,29 @@ func TestAddTracksKeepsDiscOrderInsideAlbum(t *testing.T) {
 		"track:Late",
 		"track:DiscTwo",
 	}, listItemLabels(m.trackList.Items()))
-	assert.Equal(t, []string{"01.", "02.", "2.01."}, trackNumberLabels(m.trackList.Items()))
+	assert.Equal(t, []string{"", "", ""}, trackNumberLabels(m.trackList.Items()))
 }
 
-func TestAddTracksUsesAlbumTrackNumbers(t *testing.T) {
-	m := NewDownloadModel(nil)
+func TestAddTracksUsesLayoutMasksForArtistTreeLabels(t *testing.T) {
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Layout: config.Layout{
+		AlbumDirMask:  "{title} ({year})",
+		TrackFileMask: "{nn} {title}",
+	}})
 	m.folderArtist = "ABBA"
 	m.AddTracks([]model.Track{
 		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
 		albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+		albumTrack("3", "SOS", "a", "Arrival", 1975, 1, 1),
 	})
 
-	assert.Equal(t, []string{"01.", "02."}, trackNumberLabels(m.trackList.Items()))
+	assert.Equal(t, []string{
+		"album:Zebra (1980)",
+		"track:01 Dancing",
+		"track:02 Mamma",
+		"album:Arrival (1975)",
+		"track:01 SOS",
+	}, listItemLabels(m.trackList.Items()))
+	assert.Equal(t, []string{"", "", ""}, trackNumberLabels(m.trackList.Items()))
 }
 
 func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
@@ -933,6 +945,7 @@ func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
 		"track:SOS",
 	}, listItemLabels(m.trackList.Items()))
 	assert.Empty(t, m.trackList.Items()[0].(TrackListItem).numberLabel)
+	assert.Empty(t, m.trackList.Items()[0].(TrackListItem).titleLabel)
 }
 
 func TestAddTracksSkipsHeaderWhenAlbumTitleEmpty(t *testing.T) {
@@ -986,6 +999,19 @@ func TestSelectedAlbumHeaderShowsAlbumTitle(t *testing.T) {
 	})
 
 	assert.Equal(t, "1975 - Arrival", m.selectedTrackInfo)
+}
+
+func TestSelectedTrackInfoUsesTrackFileMaskForArtistTree(t *testing.T) {
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Layout: config.Layout{
+		TrackFileMask: "{nn} - {title}",
+	}})
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+	m.trackList.Select(1)
+
+	assert.Equal(t, "01 - SOS", m.selectedItemInfo())
 }
 
 func TestFindDuplicates(t *testing.T) {
