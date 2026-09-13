@@ -55,6 +55,7 @@ const (
 	viewFormatFLAC
 	viewBackButton
 	viewDownloadButton
+	viewRetryButton
 	viewQuitButton
 )
 
@@ -62,6 +63,7 @@ var actionFocusOrder = []focusable{
 	viewFormatMP3,
 	viewFormatFLAC,
 	viewDownloadButton,
+	viewRetryButton,
 	viewBackButton,
 	viewQuitButton,
 }
@@ -115,6 +117,10 @@ var downloadKeys = downloadKeyMap{
 		key.WithKeys("D"),
 		key.WithHelp("D", "download all"),
 	),
+	Retry: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "retry errors"),
+	),
 	Back: key.NewBinding(
 		key.WithKeys("b"),
 		key.WithHelp("b", "back"),
@@ -142,6 +148,7 @@ type downloadKeyMap struct {
 	FormatMP3  key.Binding
 	FormatFLAC key.Binding
 	Download   key.Binding
+	Retry      key.Binding
 	Back       key.Binding
 	Quit       key.Binding
 	Help       key.Binding
@@ -342,6 +349,10 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 			m.focusedView = viewDownloadButton
 			m.resizeToWindow()
 			return m.activateFocusedControl()
+		case key.Matches(keyMsg, downloadKeys.Retry) && m.canRetryFailed():
+			m.focusedView = viewRetryButton
+			m.resizeToWindow()
+			return m.activateFocusedControl()
 		case key.Matches(keyMsg, downloadKeys.Back):
 			m.focusedView = viewBackButton
 			m.resizeToWindow()
@@ -376,6 +387,10 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 		case key.Matches(msg, downloadKeys.Download) && m.focusedView != viewList && !m.isDownloading:
 			m.focusedView = viewDownloadButton
+			*m, cmd = m.activateFocusedControl()
+
+		case key.Matches(msg, downloadKeys.Retry) && m.focusedView != viewList && !m.isDownloading && m.canRetryFailed():
+			m.focusedView = viewRetryButton
 			*m, cmd = m.activateFocusedControl()
 
 		case key.Matches(msg, downloadKeys.Back) && m.focusedView != viewList && !m.isDownloading:
@@ -616,11 +631,8 @@ func (m *DownloadModel) cycleFocus() {
 	m.focusNext()
 }
 
-func (m DownloadModel) startDownloadSession() tea.Cmd {
-	progress := make([]TrackProgress, 0, len(m.tracksProgress))
-	for _, item := range m.tracksProgress {
-		progress = append(progress, *item)
-	}
+func (m DownloadModel) startDownloadSession(include map[string]struct{}) tea.Cmd {
+	progress := queuedTrackProgress(m.tracksProgress, include)
 	client := m.client
 	logger := downloadLogger(client)
 	options := m.downloadOptions
@@ -635,6 +647,19 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 		session := NewDownloadSession(client, logger, options, targetDir, sessionConfig)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
+}
+
+func queuedTrackProgress(tracks []*TrackProgress, include map[string]struct{}) []TrackProgress {
+	progress := make([]TrackProgress, 0, len(tracks))
+	for _, item := range tracks {
+		if include != nil {
+			if _, ok := include[item.uid]; !ok {
+				continue
+			}
+		}
+		progress = append(progress, *item)
+	}
+	return progress
 }
 
 func (m *DownloadModel) applyProgress(progress TrackProgress) bool {
@@ -654,6 +679,8 @@ func (m *DownloadModel) resetState() {
 		}
 		tp.status = TrackStatusReady
 		tp.format = ""
+		tp.errMsg = ""
+		tp.filename = ""
 	}
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
@@ -663,6 +690,33 @@ func (m *DownloadModel) resetState() {
 	m.tracksTotalCount = len(m.tracksProgress)
 
 	m.updateTrackList()
+}
+
+func (m *DownloadModel) resetFailedTracks() map[string]struct{} {
+	include := make(map[string]struct{})
+	for _, tp := range m.tracksProgress {
+		if tp.status != TrackStatusError {
+			continue
+		}
+		tp.status = TrackStatusReady
+		tp.format = ""
+		tp.errMsg = ""
+		tp.filename = ""
+		include[tp.uid] = struct{}{}
+	}
+
+	m.downloadedCount = completedTrackCount(m.tracksProgress)
+	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
+	m.downloadableCount = len(include)
+	m.sessionCompletedCount = 0
+	m.tracksTotalCount = len(m.tracksProgress)
+
+	m.updateTrackList()
+	return include
+}
+
+func (m DownloadModel) canRetryFailed() bool {
+	return countStatus(m.tracksProgress, TrackStatusError) > 0
 }
 
 func (m *DownloadModel) updateTrackList() {
@@ -817,26 +871,50 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		if m.isDownloading {
 			return *m, nil
 		}
-		m.errorMsg = ""
-		targetDir := utils.ResolveOutputDir()
-		if err := utils.EnsureOutputDir(targetDir); err != nil {
-			downloadLogger(m.client).Error("failed to prepare output directory", "error", err, "path", targetDir)
-			m.errorMsg = fmt.Sprintf("Directory error: %v", err)
+		if !m.prepareOutputDir() {
 			return *m, nil
 		}
-
-		m.isDownloading = true
 		m.resetState()
-		m.focusedView = viewList
-		m.resizeToWindow()
+		return m.launchDownloadSession(nil)
 
-		return *m, m.startDownloadSession()
+	case viewRetryButton:
+		if m.isDownloading || !m.canRetryFailed() {
+			return *m, nil
+		}
+		if !m.prepareOutputDir() {
+			return *m, nil
+		}
+		include := m.resetFailedTracks()
+		if len(include) == 0 {
+			return *m, nil
+		}
+		return m.launchDownloadSession(include)
 
 	case viewQuitButton:
 		return m.quitOrCancel("quit_button")
 	}
 
 	return *m, nil
+}
+
+// prepareOutputDir creates and checks the download root before a session starts.
+// On failure it shows the error in the header and leaves the queue untouched.
+func (m *DownloadModel) prepareOutputDir() bool {
+	m.errorMsg = ""
+	targetDir := utils.ResolveOutputDir()
+	if err := utils.EnsureOutputDir(targetDir); err != nil {
+		downloadLogger(m.client).Error("failed to prepare output directory", "error", err, "path", targetDir)
+		m.errorMsg = fmt.Sprintf("Directory error: %v", err)
+		return false
+	}
+	return true
+}
+
+func (m *DownloadModel) launchDownloadSession(include map[string]struct{}) (DownloadModel, tea.Cmd) {
+	m.isDownloading = true
+	m.focusedView = viewList
+	m.resizeToWindow()
+	return *m, m.startDownloadSession(include)
 }
 
 func (m *DownloadModel) quitOrCancel(reason string) (DownloadModel, tea.Cmd) {
@@ -967,8 +1045,8 @@ func (m *DownloadModel) focusVerticalAction(targets []focusable) {
 func verticalTargetsBelow(control focusable) []focusable {
 	switch control {
 	case viewFormatMP3, viewFormatFLAC:
-		return []focusable{viewDownloadButton, viewBackButton, viewQuitButton}
-	case viewDownloadButton, viewBackButton:
+		return []focusable{viewDownloadButton, viewRetryButton, viewBackButton, viewQuitButton}
+	case viewDownloadButton, viewRetryButton, viewBackButton:
 		return []focusable{viewQuitButton}
 	default:
 		return nil
@@ -977,7 +1055,7 @@ func verticalTargetsBelow(control focusable) []focusable {
 
 func verticalTargetsAbove(control focusable) []focusable {
 	switch control {
-	case viewDownloadButton:
+	case viewDownloadButton, viewRetryButton:
 		return []focusable{viewFormatMP3, viewFormatFLAC}
 	case viewBackButton, viewQuitButton:
 		return []focusable{viewFormatFLAC, viewFormatMP3}
@@ -1008,6 +1086,8 @@ func (m DownloadModel) controlEnabled(control focusable) bool {
 	switch control {
 	case viewFormatMP3, viewFormatFLAC, viewBackButton, viewDownloadButton:
 		return !m.isDownloading
+	case viewRetryButton:
+		return !m.isDownloading && m.canRetryFailed()
 	case viewQuitButton:
 		return true
 	default:
@@ -1029,6 +1109,7 @@ func renderActionBar(m DownloadModel) string {
 	actionRow := lipgloss.JoinHorizontal(lipgloss.Center,
 		renderCommandLabel("ACTIONS"),
 		renderActionControl(m, viewDownloadButton, "Download all", "D"),
+		renderActionControl(m, viewRetryButton, "Retry errors", "r"),
 		renderActionControl(m, viewBackButton, "Back", "b"),
 		renderActionControl(m, viewQuitButton, quitControlLabel(m), "q"),
 	)
@@ -1152,6 +1233,8 @@ func (m DownloadModel) downloadHelpKeyMap() downloadHelpKeyMap {
 	formatFLAC.SetEnabled(!m.isDownloading)
 	download := downloadKeys.Download
 	download.SetEnabled(!m.isDownloading)
+	retry := downloadKeys.Retry
+	retry.SetEnabled(!m.isDownloading && m.canRetryFailed())
 	back := downloadKeys.Back
 	back.SetEnabled(!m.isDownloading)
 	activate := downloadKeys.Activate
@@ -1201,6 +1284,7 @@ func (m DownloadModel) downloadHelpKeyMap() downloadHelpKeyMap {
 			},
 			{
 				download,
+				retry,
 				back,
 				downloadKeys.Quit,
 				downloadKeys.Help,
@@ -1267,6 +1351,10 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 		return "duplicate", true
 	case TrackStatusNotAvailable:
 		return "not_available", true
+	case TrackStatusDownloaded:
+		return "already_downloaded", true
+	case TrackStatusAlreadyExists:
+		return "already_exists", true
 	default:
 		return "", false
 	}

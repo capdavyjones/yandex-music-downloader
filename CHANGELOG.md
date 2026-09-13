@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- add a TUI `Retry errors` action (`r`) that requeues only failed tracks instead of walking the whole download list again
 - add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses; an album that keeps failing is skipped and reported as a warning in the CLI and the TUI
 - add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
 - add `by_playlist` so playlist and chart tracks are saved as a flat list in a folder named after the playlist, ignoring `by_artist` and `by_album`
