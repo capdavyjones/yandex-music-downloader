@@ -77,6 +77,7 @@ type TrackListItem struct {
 	status            TrackStatus
 	format            string
 	trackNumberDigits int
+	titleLabel        string
 	numberLabel       string
 }
 
@@ -90,7 +91,7 @@ func (t TrackListItem) FilterValue() string {
 	if t.track == nil {
 		return ""
 	}
-	title := t.track.FullTitle()
+	title := t.Title()
 	if album := albumTitleOf(t.track); album != "" {
 		return strings.TrimSpace(title + " " + album)
 	}
@@ -98,6 +99,9 @@ func (t TrackListItem) FilterValue() string {
 }
 
 func (t TrackListItem) Title() string {
+	if strings.TrimSpace(t.titleLabel) != "" {
+		return t.titleLabel
+	}
 	if t.track == nil {
 		return ""
 	}
@@ -105,6 +109,10 @@ func (t TrackListItem) Title() string {
 }
 
 func (t TrackListItem) Description() string {
+	// В режиме маски имя уже собрано целиком (номер, артист и т.д.) — описание не дублируем.
+	if strings.TrimSpace(t.titleLabel) != "" {
+		return ""
+	}
 	if t.track == nil {
 		return ""
 	}
@@ -212,7 +220,13 @@ func (t TrackListItem) renderTrack(w io.Writer, m list.Model, index int, item Tr
 	isSelected := index == m.Index()
 
 	trackNumber := item.numberLabel
-	if trackNumber == "" {
+	switch {
+	case trackNumber != "":
+		// номер задан явно (тесты / особые случаи)
+	case strings.TrimSpace(item.titleLabel) != "":
+		// номер уже в маске имени файла — отдельную колонку не показываем
+		trackNumber = ""
+	default:
 		trackNumberDigits := item.trackNumberDigits
 		if trackNumberDigits <= 0 {
 			trackNumberDigits = trackNumberColumnDigits(len(m.Items()))
@@ -356,25 +370,6 @@ func albumTitleOf(track *model.Track) string {
 		return ""
 	}
 	return strings.TrimSpace(track.Albums[0].Title)
-}
-
-func albumTrackNumberLabel(track *model.Track, fallback int) string {
-	index := fallback
-	volume := 0
-	if track != nil && len(track.Albums) > 0 {
-		pos := track.Albums[0].TrackPosition
-		if pos.Index > 0 {
-			index = pos.Index
-		}
-		volume = pos.Volume
-	}
-	if index <= 0 {
-		index = fallback
-	}
-	if volume > 1 {
-		return fmt.Sprintf("%d.%02d. ", volume, index)
-	}
-	return fmt.Sprintf("%02d. ", index)
 }
 
 func padTrackNumberLabels(items []list.Item) {

@@ -395,6 +395,49 @@ func TestDownloadSessionCopyClonesIntoOtherAlbumDirectory(t *testing.T) {
 	assert.Equal(t, TrackStatusDownloaded, completed[1].status)
 }
 
+func TestDownloadSessionCopyStillProcessesPreMarkedDuplicates(t *testing.T) {
+	client := &cloneRecordingDownloadClient{}
+	outputDir := t.TempDir()
+	session := NewDownloadSession(
+		client,
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		outputDir,
+		SessionConfig{
+			Layout:     config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+			Duplicates: config.DuplicatesCopy,
+		},
+	)
+
+	var completed []TrackProgress
+	for event := range session.Run([]TrackProgress{
+		{
+			uid: "one",
+			track: &model.Track{
+				ID: model.FlexibleID("1"), Title: "Song", Available: true,
+				Albums: []model.Album{{Title: "Album One"}},
+			},
+			status: TrackStatusReady,
+		},
+		{
+			uid: "two",
+			track: &model.Track{
+				ID: model.FlexibleID("1"), Title: "Song", Available: true,
+				Albums: []model.Album{{Title: "Album Two"}},
+			},
+			status: TrackStatusDuplicate,
+		},
+	}) {
+		if event.Completed {
+			completed = append(completed, event.Progress)
+		}
+	}
+
+	require.Len(t, completed, 2)
+	assert.Equal(t, 1, client.downloads)
+	assert.Equal(t, 1, client.clones)
+}
+
 func TestDownloadSessionCopyMarksSameDestinationDuplicate(t *testing.T) {
 	client := &cloneRecordingDownloadClient{}
 	session := NewDownloadSession(

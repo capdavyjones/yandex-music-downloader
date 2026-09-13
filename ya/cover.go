@@ -80,9 +80,14 @@ func (c *Client) startCoverDownload(track model.Track, audioFilename string, opt
 }
 
 func buildCoverURL(track model.Track) string {
-	uri := strings.TrimSpace(track.CoverURI)
-	if uri == "" && len(track.Albums) > 0 {
+	// Обложка альбома, под который пишутся теги, важнее track.CoverURI:
+	// у одного ID на разных релизах API часто отдаёт «каноническую» обложку трека.
+	uri := ""
+	if len(track.Albums) > 0 {
 		uri = strings.TrimSpace(track.Albums[0].CoverURI)
+	}
+	if uri == "" {
+		uri = strings.TrimSpace(track.CoverURI)
 	}
 	if uri == "" {
 		return ""

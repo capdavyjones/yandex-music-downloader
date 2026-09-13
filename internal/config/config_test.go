@@ -198,7 +198,7 @@ func TestDuplicatesHelpers(t *testing.T) {
 	assert.Equal(t, DuplicatesID, Duplicates("").OrDefault())
 	assert.True(t, DuplicatesID.MarksDuplicates())
 	assert.False(t, DuplicatesNone.MarksDuplicates())
-	assert.False(t, DuplicatesCopy.MarksDuplicates())
+	assert.True(t, DuplicatesCopy.MarksDuplicates())
 	assert.True(t, DuplicatesCopy.CopiesSharedID())
 	assert.False(t, DuplicatesID.CopiesSharedID())
 }

@@ -144,8 +144,14 @@ func (d Duplicates) OrDefault() Duplicates {
 }
 
 // MarksDuplicates сообщает, нужно ли заранее помечать повторы ID как дубликаты.
+// Для id повторные вхождения пропускаются; для copy они остаются в очереди на копирование.
 func (d Duplicates) MarksDuplicates() bool {
-	return d.OrDefault() == DuplicatesID
+	switch d.OrDefault() {
+	case DuplicatesID, DuplicatesCopy:
+		return true
+	default:
+		return false
+	}
 }
 
 // CopiesSharedID сообщает, нужно ли копировать уже скачанный файл с тем же ID.

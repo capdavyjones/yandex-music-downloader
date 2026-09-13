@@ -226,6 +226,10 @@ func mergeTrackAlbum(existing []model.Album, parent model.Album) []model.Album {
 	if current.ID.String() == "" {
 		current.ID = parent.ID
 	}
+	// Обложка родителя — обложка релиза, в который кладём трек.
+	if strings.TrimSpace(parent.CoverURI) != "" {
+		current.CoverURI = parent.CoverURI
+	}
 	existing[0] = current
 	return existing
 }

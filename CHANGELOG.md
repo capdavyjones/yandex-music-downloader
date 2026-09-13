@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- replace existing M4A cover art when embedding release artwork so `duplicates: copy` clones do not keep the source album cover as the first image
+- prefer the release album cover over track-level cover URI so shared track IDs keep the artwork of the album being tagged
+- mark repeated track IDs as `Duplicate` in the TUI for `duplicates: copy` as well, while still copying them into other album folders
+- show artist discography album/track labels in the TUI using `album_dir_mask` and `track_file_mask`, matching final folder and file names
 - add a TUI `Retry errors` action (`r`) that requeues only failed tracks instead of walking the whole download list again
 - add `download_dir` so YAML config can choose the download directory; `YAMDL_DOWNLOAD_DIR` and `--output` still override it
 - add `format` so YAML config can choose the default download format (`mp3` or `flac`); `--format` still overrides it

@@ -331,7 +331,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 
 	m.updateTrackList()
 	m.tracksTotalCount = len(m.tracksProgress)
-	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
 	m.selectedTrackInfo = m.selectedItemInfo()
 }
 
@@ -649,7 +649,7 @@ func (m *DownloadModel) resetState() {
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
 	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 
@@ -713,7 +713,11 @@ func (m *DownloadModel) updateTrackList() {
 func (m *DownloadModel) groupedTrackListItems() []list.Item {
 	items := make([]list.Item, 0, len(m.tracksProgress)+8)
 	lastKey := "\x00"
-	fallback := 0
+	albumMask := strings.TrimSpace(m.layout.AlbumDirMask)
+	if albumMask == "" {
+		albumMask = config.DefaultAlbumMask
+	}
+	trackMask := m.layout.TrackFileMask
 
 	for _, tp := range m.tracksProgress {
 		if m.hideDuplicates && tp.status == TrackStatusDuplicate {
@@ -723,24 +727,25 @@ func (m *DownloadModel) groupedTrackListItems() []list.Item {
 		key, title, year := albumGroupOf(tp.track)
 		if title != "" && key != lastKey {
 			items = append(items, AlbumHeaderItem{
-				label: layout.ApplyAlbumDirMask(config.DefaultAlbumMask, year, title),
+				label: layout.ApplyAlbumDirMask(albumMask, year, title),
 				title: title,
 				year:  year,
 			})
 			lastKey = key
-			fallback = 0
 		}
 
-		fallback++
+		titleLabel := ""
+		if tp.track != nil {
+			titleLabel = layout.ApplyTrackFileMask(trackMask, *tp.track)
+		}
 		items = append(items, TrackListItem{
-			uid:         tp.uid,
-			track:       tp.track,
-			status:      tp.status,
-			format:      tp.format,
-			numberLabel: albumTrackNumberLabel(tp.track, fallback),
+			uid:        tp.uid,
+			track:      tp.track,
+			status:     tp.status,
+			format:     tp.format,
+			titleLabel: titleLabel,
 		})
 	}
-	padTrackNumberLabels(items)
 	return items
 }
 
@@ -763,7 +768,11 @@ func (m *DownloadModel) getTrackInfo(uid string) string {
 	var info string
 	for _, tp := range m.tracksProgress {
 		if tp.uid == uid {
-			info = fmt.Sprintf("%s - %s", tp.track.FullTitle(), tp.track.ArtistsString())
+			if m.groupsByAlbum() && tp.track != nil {
+				info = layout.ApplyTrackFileMask(m.layout.TrackFileMask, *tp.track)
+			} else {
+				info = fmt.Sprintf("%s - %s", tp.track.FullTitle(), tp.track.ArtistsString())
+			}
 			if tp.filename != "" {
 				info = fmt.Sprintf("Downloaded: %s", tp.filename)
 			}
@@ -1406,6 +1415,9 @@ func findDuplicates(tracks []*TrackProgress, policy config.Duplicates) {
 
 	seen := make(map[string]struct{}, len(tracks))
 	for _, tp := range tracks {
+		if tp == nil || tp.track == nil {
+			continue
+		}
 		idKey := tp.track.ID.String()
 		if idKey == "" {
 			continue
@@ -1418,11 +1430,15 @@ func findDuplicates(tracks []*TrackProgress, policy config.Duplicates) {
 	}
 }
 
-func skipDownloadReason(status TrackStatus) (string, bool) {
+func skipDownloadReason(status TrackStatus, policy config.Duplicates) (string, bool) {
 	switch status {
 	case TrackStatusDownloading:
 		return "already_downloading", true
 	case TrackStatusDuplicate:
+		// При copy повторный ID всё ещё нужно скопировать в другую папку.
+		if policy.CopiesSharedID() {
+			return "", false
+		}
 		return "duplicate", true
 	case TrackStatusNotAvailable:
 		return "not_available", true
@@ -1433,6 +1449,14 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func countDownloadable(tracks []*TrackProgress, policy config.Duplicates) int {
+	count := countStatus(tracks, TrackStatusReady)
+	if policy.CopiesSharedID() {
+		count += countStatus(tracks, TrackStatusDuplicate)
+	}
+	return count
 }
 
 func downloadFormatFromFilename(filename string) string {
@@ -1479,7 +1503,8 @@ func (m *DownloadModel) normalizeCanceledTracks() {
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	findDuplicates(m.tracksProgress, m.duplicates)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
 	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 	m.updateTrackList()

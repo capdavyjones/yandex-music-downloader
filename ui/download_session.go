@@ -103,7 +103,7 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, s.concurrency)
 		for _, item := range work {
-			if reason, shouldSkip := skipDownloadReason(item.status); shouldSkip {
+			if reason, shouldSkip := skipDownloadReason(item.status, s.duplicates); shouldSkip {
 				s.logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*item.track), "skipped",
 					"stage", "queue",
 					"reason", reason,

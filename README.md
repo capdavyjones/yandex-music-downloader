@@ -105,7 +105,7 @@ layout:
 
 - `format` selects the default download format: `mp3` or `flac`. It applies to the TUI and to `yamdl download` when `--format` is omitted. MP3 remains the default if the key is missing. For `yamdl download`, `--format` overrides this value.
 - `download_dir` selects the destination directory. It applies to the TUI and to `yamdl download`. `./downloads` remains the default if the key is missing. The `YAMDL_DOWNLOAD_DIR` environment variable overrides this value, and for `yamdl download` the `--output` flag overrides both.
-- `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. Studio and live versions with different IDs are never collapsed.
+- `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. In the TUI, `id` and `copy` both label later occurrences as `Duplicate` before download starts; with `copy` those rows stay in the download queue. Studio and live versions with different IDs are never collapsed.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.
@@ -132,7 +132,7 @@ downloads/
     03 - SOS.m4a
 ```
 
-Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled. With `duplicates: copy` and `by_album: true`, a track that appears on several of those albums is stored in each album folder with that album's tags.
+Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). In the TUI, the artist discography tree labels albums and tracks with the same `album_dir_mask` and `track_file_mask` values used for folders and filenames. The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled. With `duplicates: copy` and `by_album: true`, a track that appears on several of those albums is stored in each album folder with that album's tags.
 
 ## Authentication Token
 
@@ -195,7 +195,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
     ● Downloading... - Download in progress
     Error - Download failed
     Already Exists - File exists in target directory
-    Duplicate - Same track ID already queued
+    Duplicate - Same track ID already queued (skipped for `duplicates: id`; still copied for `duplicates: copy`)
     Not Available - Track unavailable (likely due to licensing restrictions)
     ✓ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
     ✓ FLAC - Download completed as lossless FLAC

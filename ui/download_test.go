@@ -169,18 +169,40 @@ func TestAddTracksMarksRepeatedIDsAsDuplicates(t *testing.T) {
 	}
 }
 
-func TestAddTracksNoneAndCopyKeepRepeatedIDsReady(t *testing.T) {
-	for _, policy := range []config.Duplicates{config.DuplicatesNone, config.DuplicatesCopy} {
-		m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "", policy)
-		m.AddTracks([]model.Track{
-			{ID: model.FlexibleID("1"), Title: "Song", Available: true},
-			{ID: model.FlexibleID("1"), Title: "Song", Available: true},
-		})
+func TestAddTracksCopyMarksRepeatedIDsAsDuplicatesButKeepsThemDownloadable(t *testing.T) {
+	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "", config.DuplicatesCopy)
+	m.AddTracks([]model.Track{
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		{ID: model.FlexibleID("2"), Title: "Other", Available: true},
+	})
 
-		assert.Equal(t, TrackStatusReady, m.tracksProgress[0].status, policy)
-		assert.Equal(t, TrackStatusReady, m.tracksProgress[1].status, policy)
-		assert.Equal(t, 2, m.downloadableCount, policy)
+	assert.Equal(t, 1, countStatus(m.tracksProgress, TrackStatusDuplicate))
+	assert.Equal(t, 2, countStatus(m.tracksProgress, TrackStatusReady))
+	assert.Equal(t, 3, m.downloadableCount)
+
+	var songStatuses []TrackStatus
+	for _, tp := range m.tracksProgress {
+		if tp.track.ID.String() == "1" {
+			songStatuses = append(songStatuses, tp.status)
+		}
+		if tp.track.ID.String() == "2" {
+			assert.Equal(t, TrackStatusReady, tp.status)
+		}
 	}
+	assert.ElementsMatch(t, []TrackStatus{TrackStatusReady, TrackStatusDuplicate}, songStatuses)
+}
+
+func TestAddTracksNoneKeepsRepeatedIDsReady(t *testing.T) {
+	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "", config.DuplicatesNone)
+	m.AddTracks([]model.Track{
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
+	})
+
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[1].status)
+	assert.Equal(t, 2, m.downloadableCount)
 }
 
 func TestCycleFocusWalksThroughCommandDeck(t *testing.T) {
@@ -905,15 +927,19 @@ func TestSkipDownloadReason(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.reason, func(t *testing.T) {
-			reason, shouldSkip := skipDownloadReason(testCase.status)
+			reason, shouldSkip := skipDownloadReason(testCase.status, config.DuplicatesID)
 			assert.True(t, shouldSkip)
 			assert.Equal(t, testCase.reason, reason)
 		})
 	}
 
+	reason, shouldSkip := skipDownloadReason(TrackStatusDuplicate, config.DuplicatesCopy)
+	assert.False(t, shouldSkip)
+	assert.Empty(t, reason)
+
 	for _, status := range []TrackStatus{TrackStatusReady, TrackStatusError} {
 		t.Run(status.String(), func(t *testing.T) {
-			_, shouldSkip := skipDownloadReason(status)
+			_, shouldSkip := skipDownloadReason(status, config.DuplicatesID)
 			assert.False(t, shouldSkip)
 		})
 	}
@@ -1090,18 +1116,29 @@ func TestAddTracksKeepsDiscOrderInsideAlbum(t *testing.T) {
 		"track:Late",
 		"track:DiscTwo",
 	}, listItemLabels(m.trackList.Items()))
-	assert.Equal(t, []string{"01.", "02.", "2.01."}, trackNumberLabels(m.trackList.Items()))
+	assert.Equal(t, []string{"", "", ""}, trackNumberLabels(m.trackList.Items()))
 }
 
-func TestAddTracksUsesAlbumTrackNumbers(t *testing.T) {
-	m := NewDownloadModel(nil)
+func TestAddTracksUsesLayoutMasksForArtistTreeLabels(t *testing.T) {
+	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{
+		AlbumDirMask:  "{title} ({year})",
+		TrackFileMask: "{nn} {title}",
+	}, "", config.DuplicatesID)
 	m.folderArtist = "ABBA"
 	m.AddTracks([]model.Track{
 		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
 		albumTrack("2", "Dancing", "z", "Zebra", 1980, 1, 1),
+		albumTrack("3", "SOS", "a", "Arrival", 1975, 1, 1),
 	})
 
-	assert.Equal(t, []string{"01.", "02."}, trackNumberLabels(m.trackList.Items()))
+	assert.Equal(t, []string{
+		"album:Zebra (1980)",
+		"track:01 Dancing",
+		"track:02 Mamma",
+		"album:Arrival (1975)",
+		"track:01 SOS",
+	}, listItemLabels(m.trackList.Items()))
+	assert.Equal(t, []string{"", "", ""}, trackNumberLabels(m.trackList.Items()))
 }
 
 func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
@@ -1118,6 +1155,7 @@ func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
 		"track:SOS",
 	}, listItemLabels(m.trackList.Items()))
 	assert.Empty(t, m.trackList.Items()[0].(TrackListItem).numberLabel)
+	assert.Empty(t, m.trackList.Items()[0].(TrackListItem).titleLabel)
 }
 
 func TestAddTracksSkipsHeaderWhenAlbumTitleEmpty(t *testing.T) {
@@ -1173,6 +1211,19 @@ func TestSelectedAlbumHeaderShowsAlbumTitle(t *testing.T) {
 	assert.Equal(t, "1975 - Arrival", m.selectedTrackInfo)
 }
 
+func TestSelectedTrackInfoUsesTrackFileMaskForArtistTree(t *testing.T) {
+	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{
+		TrackFileMask: "{nn} - {title}",
+	}, "", config.DuplicatesID)
+	m.folderArtist = "ABBA"
+	m.AddTracks([]model.Track{
+		albumTrack("1", "SOS", "a", "Arrival", 1975, 1, 1),
+	})
+	m.trackList.Select(1)
+
+	assert.Equal(t, "01 - SOS", m.selectedItemInfo())
+}
+
 func TestFindDuplicatesMarksOnlyRepeatedIDs(t *testing.T) {
 	id1 := uuid.New()
 	tracks := []*TrackProgress{
@@ -1194,19 +1245,31 @@ func TestFindDuplicatesMarksOnlyRepeatedIDs(t *testing.T) {
 	assert.Equal(t, TrackStatusReady, tracks[5].status)
 }
 
-func TestFindDuplicatesNoneAndCopyLeaveTracksReady(t *testing.T) {
+func TestFindDuplicatesNoneLeavesTracksReady(t *testing.T) {
 	id := uuid.New().String()
-	for _, policy := range []config.Duplicates{config.DuplicatesNone, config.DuplicatesCopy} {
-		tracks := []*TrackProgress{
-			{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
-			{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
-		}
-
-		findDuplicates(tracks, policy)
-
-		assert.Equal(t, TrackStatusReady, tracks[0].status, policy)
-		assert.Equal(t, TrackStatusReady, tracks[1].status, policy)
+	tracks := []*TrackProgress{
+		{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
+		{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
 	}
+
+	findDuplicates(tracks, config.DuplicatesNone)
+
+	assert.Equal(t, TrackStatusReady, tracks[0].status)
+	assert.Equal(t, TrackStatusReady, tracks[1].status)
+}
+
+func TestFindDuplicatesCopyMarksRepeatedIDs(t *testing.T) {
+	id := uuid.New().String()
+	tracks := []*TrackProgress{
+		{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
+		{track: &model.Track{ID: model.FlexibleID(id), Title: "Same"}},
+	}
+
+	findDuplicates(tracks, config.DuplicatesCopy)
+
+	assert.Equal(t, TrackStatusReady, tracks[0].status)
+	assert.Equal(t, TrackStatusDuplicate, tracks[1].status)
+	assert.Equal(t, 2, countDownloadable(tracks, config.DuplicatesCopy))
 }
 
 func TestDownloadProgressUpdateAppliesWorkerSnapshot(t *testing.T) {
