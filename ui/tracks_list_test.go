@@ -242,6 +242,27 @@ func TestTrackListItemRenderUsesAlbumNumberLabel(t *testing.T) {
 	assert.NotContains(t, rendered, "02.")
 }
 
+func TestTrackListItemRenderUsesTitleLabelWithoutListIndex(t *testing.T) {
+	items := []list.Item{
+		AlbumHeaderItem{label: "1975 - Arrival", title: "Arrival", year: 1975},
+		TrackListItem{
+			uid:        "item",
+			track:      &model.Track{Title: "Mamma Mia"},
+			status:     TrackStatusReady,
+			titleLabel: "01 Mamma Mia",
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 1, items[1])
+
+	rendered := ansi.Strip(row.String())
+	assert.Contains(t, rendered, "01 Mamma Mia")
+	assert.NotContains(t, rendered, "02.")
+}
+
 func TestTrackListItemRenderKeepsStatusAlignedWithAlbumNumbers(t *testing.T) {
 	items := []list.Item{
 		TrackListItem{
