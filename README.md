@@ -101,7 +101,7 @@ layout:
   track_file_mask: "{nn} - {title}"
 ```
 
-- `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. Studio and live versions with different IDs are never collapsed.
+- `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. In the TUI, `id` and `copy` both label later occurrences as `Duplicate` before download starts; with `copy` those rows stay in the download queue. Studio and live versions with different IDs are never collapsed.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.
@@ -191,7 +191,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
     ● Downloading... - Download in progress
     Error - Download failed
     Already Exists - File exists in target directory
-    Duplicate - Same track ID already queued
+    Duplicate - Same track ID already queued (skipped for `duplicates: id`; still copied for `duplicates: copy`)
     Not Available - Track unavailable (likely due to licensing restrictions)
     ✓ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
     ✓ FLAC - Download completed as lossless FLAC

@@ -145,13 +145,10 @@ func writeM4ATags(path string, tags m4aTagInput) error {
 		file.SetCustomValues(m4aSourceURLField, value)
 	}
 	if strings.TrimSpace(tags.CoverMIME) != "" && len(tags.CoverData) > 0 {
-		// Append rather than SetCoverArt: MP4 SetCoverArt removes every
-		// existing covr atom, which would discard third-party cover art.
-		file.AddImage(mtag.Picture{
-			MIME: tags.CoverMIME,
-			Type: mtag.PictureCoverFront,
-			Data: tags.CoverData,
-		})
+		// The release's own cover replaces an embedded one (including after a clone
+		// from another album with duplicates: copy). AddImage kept the old cover
+		// first, so players showed the other album's artwork.
+		file.SetCoverArt(tags.CoverMIME, tags.CoverData)
 	}
 
 	if err := file.Save(); err != nil {
