@@ -399,7 +399,7 @@ func TestDisabledPrimaryShortcutsKeepFocusOnTrackList(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.isDownloading = true
 
-	for _, shortcut := range []string{"D", "b"} {
+	for _, shortcut := range []string{"D", "r", "b"} {
 		updated, _ := m.Update(keyText(shortcut))
 		assert.Equal(t, viewList, updated.focusedView)
 	}
@@ -511,6 +511,7 @@ func TestActionBarRendersCommandHelp(t *testing.T) {
 	assert.Contains(t, plain, "esc tracks")
 	assert.Contains(t, plain, "select action")
 	assert.Contains(t, plain, "D Download all")
+	assert.Contains(t, plain, "r Retry errors")
 	assert.Contains(t, plain, "more help")
 	assert.NotContains(t, plain, "select/download")
 	assert.NotContains(t, plain, "[ Download all ]")
@@ -621,6 +622,102 @@ func TestWindowResizeKeepsMinimumTrackListHeight(t *testing.T) {
 	assert.Equal(t, minTrackListHeight, updated.trackList.Height())
 }
 
+func TestRetryErrorsShortcutQueuesOnlyFailedTracks(t *testing.T) {
+	t.Setenv("YAMDL_DOWNLOAD_DIR", t.TempDir())
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 4)
+	m.tracksProgress[0].status = TrackStatusDownloaded
+	m.tracksProgress[0].format = "MP3"
+	m.tracksProgress[1].status = TrackStatusError
+	m.tracksProgress[1].errMsg = "i/o timeout"
+	m.tracksProgress[2].status = TrackStatusAlreadyExists
+	m.tracksProgress[3].status = TrackStatusReady
+	m.errorCount = 1
+	m.downloadedCount = 2
+	m.updateTrackList()
+
+	updated, cmd := m.Update(keyText("r"))
+
+	assert.True(t, updated.isDownloading)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, viewList, updated.focusedView)
+	assert.Equal(t, TrackStatusDownloaded, updated.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusReady, updated.tracksProgress[1].status)
+	assert.Empty(t, updated.tracksProgress[1].errMsg)
+	assert.Equal(t, TrackStatusAlreadyExists, updated.tracksProgress[2].status)
+	assert.Equal(t, TrackStatusReady, updated.tracksProgress[3].status)
+	assert.Equal(t, 1, updated.downloadableCount)
+	assert.Equal(t, 2, updated.downloadedCount)
+	assert.Equal(t, 0, updated.errorCount)
+}
+
+func TestRetryErrorsDirectoryErrorKeepsFailedTracks(t *testing.T) {
+	notADir, err := os.CreateTemp(t.TempDir(), "not_a_dir")
+	assert.NoError(t, err)
+	assert.NoError(t, notADir.Close())
+	t.Setenv("YAMDL_DOWNLOAD_DIR", notADir.Name())
+
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.tracksProgress[0].status = TrackStatusError
+	m.tracksProgress[0].errMsg = "i/o timeout"
+	m.errorCount = 1
+	m.updateTrackList()
+
+	updated, cmd := m.Update(keyText("r"))
+
+	assert.False(t, updated.isDownloading)
+	assert.Nil(t, cmd)
+	assert.Equal(t, TrackStatusError, updated.tracksProgress[0].status)
+	assert.Equal(t, 1, updated.errorCount)
+	assert.Contains(t, ansi.Strip(updated.headerBlock()), "Directory error: output path is not a directory")
+}
+
+func TestRetryErrorsShortcutDoesNothingWithoutErrors(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+
+	updated, cmd := m.Update(keyText("r"))
+
+	assert.False(t, updated.isDownloading)
+	assert.Equal(t, viewList, updated.focusedView)
+	assert.Nil(t, cmd)
+}
+
+func TestRetryErrorsButtonIsDisabledWithoutErrors(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.trackList.SetWidth(200)
+
+	assert.False(t, m.controlEnabled(viewRetryButton))
+	assert.Contains(t, ansi.Strip(renderActionBar(m)), "r Retry errors")
+
+	addReadyTracks(&m, 1)
+	m.tracksProgress[0].status = TrackStatusError
+	m.errorCount = 1
+	assert.True(t, m.controlEnabled(viewRetryButton))
+
+	m.isDownloading = true
+	assert.False(t, m.controlEnabled(viewRetryButton))
+}
+
+func TestCycleFocusIncludesRetryWhenErrorsExist(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.tracksProgress[0].status = TrackStatusError
+	m.errorCount = 1
+
+	m.cycleFocus()
+	assert.Equal(t, viewFormatMP3, m.focusedView)
+	m.cycleFocus()
+	assert.Equal(t, viewFormatFLAC, m.focusedView)
+	m.cycleFocus()
+	assert.Equal(t, viewDownloadButton, m.focusedView)
+	m.cycleFocus()
+	assert.Equal(t, viewRetryButton, m.focusedView)
+	m.cycleFocus()
+	assert.Equal(t, viewBackButton, m.focusedView)
+}
+
 func TestResetState(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.tracksProgress = []*TrackProgress{
@@ -642,6 +739,47 @@ func TestResetState(t *testing.T) {
 	assert.Equal(t, 3, m.downloadableCount)
 	assert.Equal(t, 0, m.downloadedCount)
 	assert.Equal(t, 0, m.sessionCompletedCount)
+}
+
+func TestResetFailedTracksRequeuesOnlyErrors(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.tracksProgress = []*TrackProgress{
+		{uid: "downloaded", status: TrackStatusDownloaded, format: "MP3", filename: "a.mp3"},
+		{uid: "exists", status: TrackStatusAlreadyExists, format: "M4A", filename: "b.m4a"},
+		{uid: "error", status: TrackStatusError, errMsg: "timeout", format: "MP3"},
+		{uid: "ready", status: TrackStatusReady},
+		{uid: "duplicate", status: TrackStatusDuplicate},
+		{uid: "unavailable", status: TrackStatusNotAvailable},
+	}
+
+	include := m.resetFailedTracks()
+
+	assert.Equal(t, map[string]struct{}{"error": {}}, include)
+	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[2].status)
+	assert.Empty(t, m.tracksProgress[2].errMsg)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[3].status)
+	assert.Equal(t, TrackStatusDuplicate, m.tracksProgress[4].status)
+	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[5].status)
+	assert.Equal(t, 1, m.downloadableCount)
+	assert.Equal(t, 2, m.downloadedCount)
+	assert.Equal(t, 0, m.errorCount)
+	assert.Equal(t, 0, m.sessionCompletedCount)
+}
+
+func TestQueuedTrackProgressLimitsRetryToFailedTracks(t *testing.T) {
+	tracks := []*TrackProgress{
+		{uid: "downloaded", status: TrackStatusDownloaded},
+		{uid: "error", status: TrackStatusReady},
+		{uid: "ready", status: TrackStatusReady},
+	}
+
+	queued := queuedTrackProgress(tracks, map[string]struct{}{"error": {}})
+
+	if assert.Len(t, queued, 1) {
+		assert.Equal(t, "error", queued[0].uid)
+	}
 }
 
 func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
@@ -761,6 +899,8 @@ func TestSkipDownloadReason(t *testing.T) {
 		{TrackStatusDownloading, "already_downloading"},
 		{TrackStatusDuplicate, "duplicate"},
 		{TrackStatusNotAvailable, "not_available"},
+		{TrackStatusDownloaded, "already_downloaded"},
+		{TrackStatusAlreadyExists, "already_exists"},
 	}
 
 	for _, testCase := range testCases {
@@ -771,7 +911,7 @@ func TestSkipDownloadReason(t *testing.T) {
 		})
 	}
 
-	for _, status := range []TrackStatus{TrackStatusDownloaded, TrackStatusAlreadyExists, TrackStatusReady, TrackStatusError} {
+	for _, status := range []TrackStatus{TrackStatusReady, TrackStatusError} {
 		t.Run(status.String(), func(t *testing.T) {
 			_, shouldSkip := skipDownloadReason(status)
 			assert.False(t, shouldSkip)

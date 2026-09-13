@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- add a TUI `Retry errors` action (`r`) that requeues only failed tracks instead of walking the whole download list again
 - add `download_dir` so YAML config can choose the download directory; `YAMDL_DOWNLOAD_DIR` and `--output` still override it
 - add `format` so YAML config can choose the default download format (`mp3` or `flac`); `--format` still overrides it
 - add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
