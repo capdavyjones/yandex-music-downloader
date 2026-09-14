@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -17,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func keyText(text string) tea.KeyPressMsg {
@@ -814,7 +816,7 @@ func TestCountStatus(t *testing.T) {
 }
 
 func TestRenderHeader(t *testing.T) {
-	header := renderHeader(5, 10, 8, 2)
+	header := renderHeader(5, 10, 8, 2, "", 80)
 	assert.Contains(t, header, "Total tracks:")
 	assert.Contains(t, header, "10")
 	assert.Contains(t, header, "To download:")
@@ -824,6 +826,54 @@ func TestRenderHeader(t *testing.T) {
 	assert.Contains(t, header, "Errors:")
 	assert.Contains(t, header, "2")
 	assert.NotContains(t, header, "\nTo download")
+	assert.NotContains(t, header, "Retry in")
+}
+
+func TestRenderHeaderIncludesRetryStatusOnTheRight(t *testing.T) {
+	retry := dimGrayForeground.Render("Retry in 8s · 2 left")
+	header := renderHeader(5, 10, 8, 2, retry, 100)
+	plain := ansi.Strip(header)
+	assert.Contains(t, plain, "Total tracks:")
+	assert.Contains(t, plain, "Retry in 8s · 2 left")
+	assert.True(t, strings.Index(plain, "Total tracks:") < strings.Index(plain, "Retry in"))
+}
+
+func TestApplyRetryWaitTracksActiveCountdown(t *testing.T) {
+	m := NewDownloadModel(nil)
+	until := time.Now().Add(8 * time.Second)
+
+	m.applyRetryWait("a", &DownloadRetryWait{Remaining: 2, Until: until}, false)
+	require.Len(t, m.retryWaits, 1)
+	status := ansi.Strip(m.renderRetryStatus(until.Add(-8 * time.Second)))
+	assert.Equal(t, "Retry in 8s · 2 left", status)
+
+	m.applyRetryWait("a", &DownloadRetryWait{Remaining: 0, Until: time.Time{}}, false)
+	assert.Empty(t, m.retryWaits)
+	assert.Empty(t, m.renderRetryStatus(time.Now()))
+}
+
+func TestDownloadProgressUpdateStartsRetryTick(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.tracksProgress = []*TrackProgress{
+		{uid: "track-1", track: &model.Track{ID: "1", Title: "Song"}, status: TrackStatusDownloading},
+	}
+	events := make(chan DownloadSessionEvent)
+	close(events)
+	m.sessionEvents = events
+
+	updated, cmd := m.Update(DownloadProgressUpdateMsg{
+		progress:  TrackProgress{uid: "track-1", status: TrackStatusDownloading},
+		retryWait: &DownloadRetryWait{Remaining: 3, Until: time.Now().Add(10 * time.Second)},
+	})
+	require.NotNil(t, cmd)
+	assert.Len(t, updated.retryWaits, 1)
+
+	updated, _ = updated.Update(DownloadProgressUpdateMsg{
+		progress:  TrackProgress{uid: "track-1", status: TrackStatusDownloading},
+		retryWait: &DownloadRetryWait{Remaining: 0},
+	})
+	assert.Empty(t, updated.retryWaits)
+	assert.Empty(t, ansi.Strip(updated.renderRetryStatus(time.Now())))
 }
 
 func TestQueueHeaderShowsBrandFormatAndVerboseStats(t *testing.T) {

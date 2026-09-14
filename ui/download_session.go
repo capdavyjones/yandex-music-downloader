@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"time"
 	"ya-music/internal/batch"
 	"ya-music/internal/config"
 	"ya-music/internal/layout"
@@ -33,9 +34,17 @@ type trackCloner interface {
 	CloneTaggedTrack(string, string, model.Track, ya.DownloadOptions) (string, error)
 }
 
+// DownloadRetryWait describes the pause before the next download attempt.
+type DownloadRetryWait struct {
+	Remaining int
+	Until     time.Time
+}
+
 type DownloadSessionEvent struct {
 	Progress  TrackProgress
 	Completed bool
+	// RetryWait is non-nil during the pause between attempts; Remaining == 0 means a reset.
+	RetryWait *DownloadRetryWait
 }
 
 type DownloadSession struct {
@@ -73,6 +82,9 @@ func NewDownloadSession(
 
 	settings := cfg.Settings
 	settings.Duplicates = settings.Duplicates.OrDefault()
+	if settings.DownloadRetryInterval <= 0 {
+		settings.DownloadRetryInterval = config.DefaultDownloadRetryInterval
+	}
 
 	return &DownloadSession{
 		client:         client,
@@ -97,6 +109,8 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 			"max_concurrent_downloads", s.concurrency,
 			"format", s.options.FormatOrDefault(),
 			"duplicates", string(s.settings.Duplicates),
+			"download_retries", s.settings.DownloadRetries,
+			"download_retry_interval_sec", s.settings.DownloadRetryInterval,
 		)
 
 		published := batch.NewPublishedFiles()
@@ -230,7 +244,26 @@ func (s *DownloadSession) finishDownload(
 		return
 	}
 
-	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, options)
+	filePath, err := ya.DownloadTrackWithRetries(
+		context.Background(),
+		s.client,
+		*item.track,
+		dir,
+		options,
+		s.settings.DownloadRetries,
+		time.Duration(s.settings.DownloadRetryInterval)*time.Second,
+		func(remaining int, until time.Time) {
+			if remaining > 0 {
+				s.logger.LogTrack(slog.LevelInfo, trackCtx, "download retry scheduled",
+					"stage", "download_track",
+					"retries_left", remaining,
+					"retry_in_sec", s.settings.DownloadRetryInterval,
+				)
+			}
+			wait := &DownloadRetryWait{Remaining: remaining, Until: until}
+			events <- DownloadSessionEvent{Progress: item, RetryWait: wait}
+		},
+	)
 	if leader {
 		if err == nil || errors.Is(err, ya.ErrTrackAlreadyExists) {
 			publishedFile.Complete(filePath)
