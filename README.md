@@ -93,6 +93,8 @@ By default, tracks are saved as `Artist - Title.ext` directly in the output dire
 
 ```yaml
 duplicates: id
+download_retries: 3
+download_retry_interval: 10
 layout:
   by_artist: true
   by_album: true
@@ -102,6 +104,8 @@ layout:
 ```
 
 - `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. In the TUI, `id` and `copy` both label later occurrences as `Duplicate` before download starts; with `copy` those rows stay in the download queue. Studio and live versions with different IDs are never collapsed.
+- `download_retries` sets the number of retry attempts after a failed track download. Default is `0` (no retries). When a track download fails, it will be retried up to this many times.
+- `download_retry_interval` sets the number of seconds to wait between retry attempts. Default is `10` seconds.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.

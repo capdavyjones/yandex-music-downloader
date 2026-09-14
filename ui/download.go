@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
@@ -155,7 +156,10 @@ type downloadSessionStartedMsg struct {
 type DownloadProgressUpdateMsg struct {
 	progress  TrackProgress
 	completed bool
+	retryWait *DownloadRetryWait
 }
+
+type downloadRetryTickMsg struct{}
 
 type DownloadModel struct {
 	// External dependencies.
@@ -179,6 +183,7 @@ type DownloadModel struct {
 	// Download progress channel and tracking.
 	sessionEvents  <-chan DownloadSessionEvent
 	tracksProgress []*TrackProgress
+	retryWaits     map[string]DownloadRetryWait
 
 	// Counters.
 	tracksTotalCount      int
@@ -233,6 +238,12 @@ func NewDownloadModelWithConfig(client *ya.Client, options ya.DownloadOptions, s
 	}
 
 	settings.Duplicates = settings.Duplicates.OrDefault()
+	if settings.DownloadRetryInterval <= 0 {
+		settings.DownloadRetryInterval = config.DefaultDownloadRetryInterval
+	}
+	if settings.DownloadRetries < 0 {
+		settings.DownloadRetries = config.DefaultDownloadRetries
+	}
 
 	return DownloadModel{
 		client:            client,
@@ -243,6 +254,7 @@ func NewDownloadModelWithConfig(client *ya.Client, options ya.DownloadOptions, s
 		trackList:         l,
 		help:              newDownloadHelp(),
 		tracksProgress:    []*TrackProgress{},
+		retryWaits:        make(map[string]DownloadRetryWait),
 		focusedView:       viewList,
 		lastActionFocus:   viewFormatMP3,
 		hideDuplicates:    false,
@@ -278,6 +290,7 @@ func (m DownloadModel) Init() tea.Cmd {
 func (m *DownloadModel) Reset() {
 	m.tracksProgress = nil
 	m.sessionEvents = nil
+	m.retryWaits = make(map[string]DownloadRetryWait)
 	m.folderArtist = ""
 	m.folderPlaylist = ""
 	m.tracksTotalCount = 0
@@ -434,10 +447,12 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 	case downloadSessionStartedMsg:
 		m.sessionEvents = msg.events
+		m.retryWaits = make(map[string]DownloadRetryWait)
 		m.updateTrackList()
 		cmd = nextDownloadSessionEvent(m.sessionEvents)
 
 	case DownloadProgressUpdateMsg:
+		hadRetryWait := len(m.retryWaits) > 0
 		if m.applyProgress(msg.progress) {
 			if msg.completed {
 				m.downloadedCount++
@@ -446,10 +461,20 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 			m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 			m.updateTrackList()
 		}
+		m.applyRetryWait(msg.progress.uid, msg.retryWait, msg.completed)
 		cmd = nextDownloadSessionEvent(m.sessionEvents)
+		if !hadRetryWait && len(m.retryWaits) > 0 {
+			cmds = append(cmds, scheduleDownloadRetryTick())
+		}
+
+	case downloadRetryTickMsg:
+		if len(m.retryWaits) > 0 {
+			cmd = scheduleDownloadRetryTick()
+		}
 
 	case DownloadEndMsg:
 		m.isDownloading = false
+		m.retryWaits = make(map[string]DownloadRetryWait)
 		if m.shutdownRequested {
 			m.normalizeCanceledTracks()
 			m.shutdownRequested = false
@@ -532,6 +557,13 @@ func (m DownloadModel) fixedDownloadHeight() int {
 
 func (m DownloadModel) headerBlock() string {
 	header := m.renderQueueHeader()
+	if retry := m.renderRetryStatus(time.Now()); retry != "" {
+		width := m.trackList.Width()
+		if width <= 0 {
+			width = responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
+		}
+		header = placeHeaderLine(header, retry, width)
+	}
 	info := m.selectedTrackInfo
 	if m.errorMsg != "" {
 		info = redForeground.Render(m.errorMsg)
@@ -737,13 +769,27 @@ func completedTrackCount(tracks []*TrackProgress) int {
 		countStatus(tracks, TrackStatusAlreadyExists)
 }
 
-func renderHeader(completed, total, downloadable, errors int) string {
-	return strings.Join([]string{
+func renderHeader(completed, total, downloadable, errors int, retryText string, width int) string {
+	left := strings.Join([]string{
 		renderCounter("Total tracks", total),
 		renderCounter("To download", downloadable),
 		renderCounter("Completed", completed),
 		renderCounter("Errors", errors),
-	}, "  ") + "\n"
+	}, "  ")
+	if retryText == "" {
+		return left + "\n"
+	}
+	return placeHeaderLine(left, retryText, width) + "\n"
+}
+
+func placeHeaderLine(left, right string, width int) string {
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	gap := width - leftWidth - rightWidth
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func renderCounter(label string, value int) string {
@@ -796,6 +842,58 @@ func (m DownloadModel) renderQueueHeader() string {
 	}
 
 	return ansi.Truncate(render("Q", compactStats), width, "…")
+}
+
+func (m DownloadModel) renderRetryStatus(now time.Time) string {
+	wait, ok := m.soonestRetryWait()
+	if !ok {
+		return ""
+	}
+	return dimGrayForeground.Render(fmt.Sprintf(
+		"Retry in %ds · %d left",
+		retrySecondsLeft(wait.Until, now),
+		wait.Remaining,
+	))
+}
+
+func (m DownloadModel) soonestRetryWait() (DownloadRetryWait, bool) {
+	var best DownloadRetryWait
+	found := false
+	for _, wait := range m.retryWaits {
+		if wait.Remaining <= 0 {
+			continue
+		}
+		if !found || wait.Until.Before(best.Until) {
+			best = wait
+			found = true
+		}
+	}
+	return best, found
+}
+
+func (m *DownloadModel) applyRetryWait(uid string, wait *DownloadRetryWait, completed bool) {
+	if m.retryWaits == nil {
+		m.retryWaits = make(map[string]DownloadRetryWait)
+	}
+	if completed || wait == nil || wait.Remaining <= 0 {
+		delete(m.retryWaits, uid)
+		return
+	}
+	m.retryWaits[uid] = *wait
+}
+
+func retrySecondsLeft(until, now time.Time) int {
+	d := until.Sub(now)
+	if d <= 0 {
+		return 0
+	}
+	return int((d + time.Second - 1) / time.Second)
+}
+
+func scheduleDownloadRetryTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return downloadRetryTickMsg{}
+	})
 }
 
 func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
@@ -1230,6 +1328,7 @@ func nextDownloadSessionEvent(events <-chan DownloadSessionEvent) tea.Cmd {
 		return DownloadProgressUpdateMsg{
 			progress:  event.Progress,
 			completed: event.Completed,
+			retryWait: event.RetryWait,
 		}
 	}
 }
