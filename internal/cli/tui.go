@@ -44,7 +44,15 @@ func runTUI(args []string, stderr io.Writer) int {
 		SkipCover:   options.skipCover,
 		AudioFormat: resolveAudioFormat("", cfg.Format),
 	}
-	prog := tea.NewProgram(ui.StartUiWithLayout(client, downloadOptions, cfg.Layout, cfg.DownloadDir, cfg.Duplicates))
+	prog := tea.NewProgram(ui.StartUiWithLayout(
+		client,
+		downloadOptions,
+		cfg.Layout,
+		cfg.DownloadDir,
+		cfg.Duplicates,
+		cfg.DownloadRetries,
+		cfg.DownloadRetryInterval,
+	))
 
 	go func() {
 		sig := <-sigCh

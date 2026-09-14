@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"ya-music/internal/config"
 	"ya-music/internal/layout"
@@ -57,16 +58,18 @@ type trackCloner interface {
 }
 
 type Config struct {
-	Client         trackDownloader
-	Tracks         []model.Track
-	OutputDir      string
-	Options        ya.DownloadOptions
-	Concurrency    int
-	Context        context.Context
-	Layout         config.Layout
-	FolderArtist   string
-	FolderPlaylist string
-	Duplicates     config.Duplicates
+	Client                trackDownloader
+	Tracks                []model.Track
+	OutputDir             string
+	Options               ya.DownloadOptions
+	Concurrency           int
+	Context               context.Context
+	Layout                config.Layout
+	FolderArtist          string
+	FolderPlaylist        string
+	Duplicates            config.Duplicates
+	DownloadRetries       int
+	DownloadRetryInterval int // секунды между попытками
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
@@ -129,16 +132,18 @@ func Run(cfg Config) <-chan Event {
 				if !leader {
 					workers.Add(1)
 					go runCopyWaiter(copyWaiterArgs{
-						ctx:     ctx,
-						sem:     sem,
-						events:  events,
-						event:   event,
-						options: options,
-						dir:     dir,
-						client:  cfg.Client,
-						cloner:  cloner,
-						source:  publishedFile,
-						workers: &workers,
+						ctx:                   ctx,
+						sem:                   sem,
+						events:                events,
+						event:                 event,
+						options:               options,
+						dir:                   dir,
+						client:                cfg.Client,
+						cloner:                cloner,
+						source:                publishedFile,
+						workers:               &workers,
+						downloadRetries:       cfg.DownloadRetries,
+						downloadRetryInterval: cfg.DownloadRetryInterval,
 					})
 					continue
 				}
@@ -153,16 +158,18 @@ func Run(cfg Config) <-chan Event {
 
 			workers.Add(1)
 			go runDownloadWorker(downloadWorkerArgs{
-				ctx:           ctx,
-				sem:           sem,
-				events:        events,
-				event:         event,
-				options:       options,
-				dir:           dir,
-				client:        cfg.Client,
-				publishedFile: publishedFile,
-				leader:        leader,
-				workers:       &workers,
+				ctx:                   ctx,
+				sem:                   sem,
+				events:                events,
+				event:                 event,
+				options:               options,
+				dir:                   dir,
+				client:                cfg.Client,
+				publishedFile:         publishedFile,
+				leader:                leader,
+				workers:               &workers,
+				downloadRetries:       cfg.DownloadRetries,
+				downloadRetryInterval: cfg.DownloadRetryInterval,
 			})
 		}
 
@@ -173,16 +180,18 @@ func Run(cfg Config) <-chan Event {
 }
 
 type downloadWorkerArgs struct {
-	ctx           context.Context
-	sem           chan struct{}
-	events        chan<- Event
-	event         Event
-	options       ya.DownloadOptions
-	dir           string
-	client        trackDownloader
-	publishedFile *PublishedFile
-	leader        bool
-	workers       *sync.WaitGroup
+	ctx                   context.Context
+	sem                   chan struct{}
+	events                chan<- Event
+	event                 Event
+	options               ya.DownloadOptions
+	dir                   string
+	client                trackDownloader
+	publishedFile         *PublishedFile
+	leader                bool
+	workers               *sync.WaitGroup
+	downloadRetries       int
+	downloadRetryInterval int
 }
 
 func runDownloadWorker(args downloadWorkerArgs) {
@@ -206,21 +215,32 @@ func runDownloadWorker(args downloadWorkerArgs) {
 		return
 	}
 
-	filename, err := downloadToDir(args.ctx, args.events, &args.event, args.dir, args.client, args.options)
+	filename, err := downloadToDir(
+		args.ctx,
+		args.events,
+		&args.event,
+		args.dir,
+		args.client,
+		args.options,
+		args.downloadRetries,
+		args.downloadRetryInterval,
+	)
 	publishDownloadedFile(args.publishedFile, args.leader, filename, err)
 }
 
 type copyWaiterArgs struct {
-	ctx     context.Context
-	sem     chan struct{}
-	events  chan<- Event
-	event   Event
-	options ya.DownloadOptions
-	dir     string
-	client  trackDownloader
-	cloner  trackCloner
-	source  *PublishedFile
-	workers *sync.WaitGroup
+	ctx                   context.Context
+	sem                   chan struct{}
+	events                chan<- Event
+	event                 Event
+	options               ya.DownloadOptions
+	dir                   string
+	client                trackDownloader
+	cloner                trackCloner
+	source                *PublishedFile
+	workers               *sync.WaitGroup
+	downloadRetries       int
+	downloadRetryInterval int
 }
 
 func runCopyWaiter(args copyWaiterArgs) {
@@ -251,7 +271,16 @@ func runCopyWaiter(args copyWaiterArgs) {
 		return
 	}
 	defer func() { <-args.sem }()
-	_, _ = downloadToDir(args.ctx, args.events, &args.event, args.dir, args.client, args.options)
+	_, _ = downloadToDir(
+		args.ctx,
+		args.events,
+		&args.event,
+		args.dir,
+		args.client,
+		args.options,
+		args.downloadRetries,
+		args.downloadRetryInterval,
+	)
 }
 
 func downloadToDir(
@@ -261,6 +290,8 @@ func downloadToDir(
 	dir string,
 	client trackDownloader,
 	options ya.DownloadOptions,
+	retries int,
+	retryIntervalSec int,
 ) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
@@ -276,7 +307,20 @@ func downloadToDir(
 		return "", err
 	}
 
-	filename, err := client.DownloadTrackWithOptions(event.Track, dir, options)
+	if retryIntervalSec <= 0 {
+		retryIntervalSec = config.DefaultDownloadRetryInterval
+	}
+
+	filename, err := ya.DownloadTrackWithRetries(
+		ctx,
+		client,
+		event.Track,
+		dir,
+		options,
+		retries,
+		time.Duration(retryIntervalSec)*time.Second,
+		nil,
+	)
 	applyDownloadResult(event, filename, err)
 	events <- *event
 	return filename, err

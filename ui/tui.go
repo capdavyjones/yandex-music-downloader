@@ -120,15 +120,39 @@ func (m Model) View() tea.View {
 }
 
 func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
-	return StartUiWithLayout(client, downloadOptionsOrDefault(options), config.Layout{}, "", config.DuplicatesID)
+	return StartUiWithLayout(
+		client,
+		downloadOptionsOrDefault(options),
+		config.Layout{},
+		"",
+		config.DuplicatesID,
+		config.DefaultDownloadRetries,
+		config.DefaultDownloadRetryInterval,
+	)
 }
 
-func StartUiWithLayout(client *ya.Client, download ya.DownloadOptions, layout config.Layout, output string, duplicates config.Duplicates) Model {
+func StartUiWithLayout(
+	client *ya.Client,
+	download ya.DownloadOptions,
+	layout config.Layout,
+	output string,
+	duplicates config.Duplicates,
+	downloadRetries int,
+	downloadRetryInterval int,
+) Model {
 	return Model{
-		initState:     UiStateTokenInput,
-		tokenModel:    NewTokenModel(client),
-		sourceModel:   NewSourceModel(client),
-		downloadModel: NewDownloadModelWithLayout(client, download, layout, output, duplicates),
+		initState:   UiStateTokenInput,
+		tokenModel:  NewTokenModel(client),
+		sourceModel: NewSourceModel(client),
+		downloadModel: NewDownloadModelWithLayout(
+			client,
+			download,
+			layout,
+			output,
+			duplicates,
+			downloadRetries,
+			downloadRetryInterval,
+		),
 	}
 }
 

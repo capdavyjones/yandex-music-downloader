@@ -63,7 +63,7 @@ func TestStartUiWithLayoutStoresLayout(t *testing.T) {
 		ByAlbum:       true,
 		AlbumDirMask:  "{year} - {title}",
 		TrackFileMask: "{nn} - {title}",
-	}, "./music", config.DuplicatesCopy)
+	}, "./music", config.DuplicatesCopy, 0, 10)
 
 	assert.True(t, model.downloadModel.layout.ByArtist)
 	assert.True(t, model.downloadModel.layout.ByAlbum)

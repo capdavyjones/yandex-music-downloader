@@ -11,11 +11,13 @@ import (
 )
 
 const (
-	DefaultPath       = "yamdl.yaml"
-	DefaultAlbumMask  = "{year} - {title}"
-	DefaultTrackMask  = "{artist} - {title}"
-	DefaultFormat     = "mp3"
-	DefaultDuplicates = DuplicatesID
+	DefaultPath                  = "yamdl.yaml"
+	DefaultAlbumMask             = "{year} - {title}"
+	DefaultTrackMask             = "{artist} - {title}"
+	DefaultFormat                = "mp3"
+	DefaultDuplicates            = DuplicatesID
+	DefaultDownloadRetries       = 0
+	DefaultDownloadRetryInterval = 10
 )
 
 // Duplicates задаёт, как обрабатывать повтор одного и того же ID трека.
@@ -45,10 +47,12 @@ var trackPlaceholders = map[string]struct{}{
 
 // Config описывает настройки приложения из YAML.
 type Config struct {
-	Format      string     `yaml:"format"`
-	DownloadDir string     `yaml:"download_dir"`
-	Duplicates  Duplicates `yaml:"duplicates"`
-	Layout      Layout     `yaml:"layout"`
+	Format                string     `yaml:"format"`
+	DownloadDir           string     `yaml:"download_dir"`
+	Duplicates            Duplicates `yaml:"duplicates"`
+	DownloadRetries       int        `yaml:"download_retries"`
+	DownloadRetryInterval int        `yaml:"download_retry_interval"`
+	Layout                Layout     `yaml:"layout"`
 }
 
 // Layout задаёт раскладку скачанных файлов по исполнителям и релизам.
@@ -62,8 +66,10 @@ type Layout struct {
 
 func Default() Config {
 	return Config{
-		Format:     DefaultFormat,
-		Duplicates: DefaultDuplicates,
+		Format:                DefaultFormat,
+		Duplicates:            DefaultDuplicates,
+		DownloadRetries:       DefaultDownloadRetries,
+		DownloadRetryInterval: DefaultDownloadRetryInterval,
 		Layout: Layout{
 			AlbumDirMask:  DefaultAlbumMask,
 			TrackFileMask: DefaultTrackMask,
@@ -105,7 +111,21 @@ func (c *Config) normalize() error {
 	if err := c.normalizeDuplicates(); err != nil {
 		return err
 	}
+	if err := c.normalizeDownloadRetries(); err != nil {
+		return err
+	}
 	return c.Layout.normalize()
+}
+
+func (c *Config) normalizeDownloadRetries() error {
+	if c.DownloadRetries < 0 {
+		return fmt.Errorf("download_retries must be >= 0")
+	}
+	// 0 после Unmarshal означает явный ноль в YAML — интервал должен быть положительным.
+	if c.DownloadRetryInterval <= 0 {
+		return fmt.Errorf("download_retry_interval must be > 0")
+	}
+	return nil
 }
 
 func (c *Config) normalizeFormat() error {

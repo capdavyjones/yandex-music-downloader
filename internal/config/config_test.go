@@ -18,6 +18,10 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	assert.Equal(t, DefaultFormat, cfg.Format)
 	assert.Empty(t, cfg.DownloadDir)
 	assert.Equal(t, DefaultDuplicates, cfg.Duplicates)
+	assert.Equal(t, DefaultDownloadRetries, cfg.DownloadRetries)
+	assert.Equal(t, DefaultDownloadRetryInterval, cfg.DownloadRetryInterval)
+	assert.Equal(t, 0, cfg.DownloadRetries)
+	assert.Equal(t, 10, cfg.DownloadRetryInterval)
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
 	assert.False(t, cfg.Layout.ByPlaylist)
@@ -210,4 +214,67 @@ func TestLoadRejectsInvalidYAML(t *testing.T) {
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse config")
+}
+
+func TestLoadParsesDownloadRetries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+download_retries: 3
+download_retry_interval: 15
+`), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 3, cfg.DownloadRetries)
+	assert.Equal(t, 15, cfg.DownloadRetryInterval)
+}
+
+func TestLoadOmittedDownloadRetriesKeepDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("format: flac\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "flac", cfg.Format)
+	assert.Equal(t, DefaultDownloadRetries, cfg.DownloadRetries)
+	assert.Equal(t, DefaultDownloadRetryInterval, cfg.DownloadRetryInterval)
+}
+
+func TestLoadExplicitZeroDownloadRetriesKeepsDefaultInterval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("download_retries: 0\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, cfg.DownloadRetries)
+	assert.Equal(t, DefaultDownloadRetryInterval, cfg.DownloadRetryInterval)
+}
+
+func TestLoadRejectsNegativeDownloadRetries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("download_retries: -1\n"), 0644))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "download_retries must be >= 0")
+}
+
+func TestLoadRejectsNonPositiveDownloadRetryInterval(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{name: "zero", yaml: "download_retry_interval: 0\n"},
+		{name: "negative", yaml: "download_retry_interval: -5\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "yamdl.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tt.yaml), 0644))
+
+			_, err := Load(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "download_retry_interval must be > 0")
+		})
+	}
 }
