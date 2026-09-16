@@ -11,8 +11,9 @@ import (
 )
 
 type artifactMetadata struct {
-	Track     model.Track
-	CoverPath string
+	Track            model.Track
+	CoverPath        string
+	AlbumArtistFirst bool
 }
 
 type artifactTagger interface {
@@ -101,7 +102,11 @@ func (c *Client) publishAudioArtifact(
 		defer c.removeCoverFile(trackCtx, cover.filename)
 	}
 
-	metadata := artifactMetadata{Track: track, CoverPath: cover.filename}
+	metadata := artifactMetadata{
+		Track:            track,
+		CoverPath:        cover.filename,
+		AlbumArtistFirst: options.AlbumArtistFirst,
+	}
 	if err := spec.Tagger.Write(tempFilename, metadata); err != nil {
 		if spec.FailurePolicy == metadataRequired {
 			c.logTrackFailure(trackCtx, spec.MetadataStage, err,
@@ -148,13 +153,13 @@ func (c *Client) publishAudioArtifact(
 type mp3ArtifactTagger struct{}
 
 func (mp3ArtifactTagger) Write(path string, metadata artifactMetadata) error {
-	return writeID3Tags(path, metadata.Track, metadata.CoverPath)
+	return writeID3Tags(path, metadata.Track, metadata.CoverPath, metadata.AlbumArtistFirst)
 }
 
 type flacArtifactTagger struct{}
 
 func (flacArtifactTagger) Write(path string, metadata artifactMetadata) error {
-	return writeFLACTags(path, metadata.Track, metadata.CoverPath)
+	return writeFLACTags(path, metadata.Track, metadata.CoverPath, metadata.AlbumArtistFirst)
 }
 
 type m4aArtifactTagger struct {
@@ -167,7 +172,7 @@ func (t m4aArtifactTagger) Write(path string, metadata artifactMetadata) error {
 		album = *first
 	}
 	coverMIME, coverData, _ := readM4ACoverData(metadata.CoverPath)
-	tags := m4aTagInputForTrack(metadata.Track, album, coverMIME, coverData)
+	tags := m4aTagInputForTrack(metadata.Track, album, coverMIME, coverData, metadata.AlbumArtistFirst)
 	return t.client.m4aTags().Write(path, tags)
 }
 

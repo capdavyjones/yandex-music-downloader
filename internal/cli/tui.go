@@ -40,7 +40,10 @@ func runTUI(args []string, stderr io.Writer) int {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
+	downloadOptions := ya.DownloadOptions{
+		SkipCover:        options.skipCover,
+		AlbumArtistFirst: options.albumArtistFirst || cfg.AlbumArtistFirst,
+	}
 	prog := tea.NewProgram(ui.StartUiWithConfig(client, downloadOptions, cfg))
 
 	go func() {
@@ -52,6 +55,7 @@ func runTUI(args []string, stderr io.Writer) int {
 		"log_path", downloadLogger.Path(),
 		"download_timeout_seconds", options.timeoutSeconds,
 		"skip_cover", options.skipCover,
+		"album_artist_first", downloadOptions.AlbumArtistFirst,
 	)
 
 	if os.Getenv("DEBUG") != "" {

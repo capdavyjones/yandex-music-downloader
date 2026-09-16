@@ -18,6 +18,7 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
 	assert.False(t, cfg.Layout.ByPlaylist)
+	assert.False(t, cfg.AlbumArtistFirst)
 	assert.Equal(t, DefaultAlbumMask, cfg.Layout.AlbumDirMask)
 	assert.Equal(t, DefaultTrackMask, cfg.Layout.TrackFileMask)
 }
@@ -98,6 +99,15 @@ layout:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown track_file_mask placeholder {name}")
+}
+
+func TestLoadParsesAlbumArtistFirst(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("album_artist_first: true\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.AlbumArtistFirst)
 }
 
 func TestLoadRejectsInvalidYAML(t *testing.T) {

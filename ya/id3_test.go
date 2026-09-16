@@ -51,7 +51,7 @@ func TestWriteID3TagsWritesBasicMetadataAndCover(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, writeID3Tags(mp3Path, track, coverPath))
+	require.NoError(t, writeID3Tags(mp3Path, track, coverPath, false))
 
 	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
 	require.NoError(t, err)
@@ -59,6 +59,7 @@ func TestWriteID3TagsWritesBasicMetadataAndCover(t *testing.T) {
 
 	assert.Equal(t, "Song Acoustic", tag.Title())
 	assert.Equal(t, "Artist A, Artist B", tag.Artist())
+	assert.Equal(t, "", tag.GetTextFrame(tag.CommonID("Band/Orchestra/Accompaniment")).Text)
 	assert.Equal(t, "Album", tag.Album())
 	assert.Equal(t, "indie", tag.Genre())
 	assert.Equal(t, "2025", tag.Year())
@@ -79,6 +80,29 @@ func TestWriteID3TagsWritesBasicMetadataAndCover(t *testing.T) {
 	assert.Equal(t, []byte("123"), ufid.Identifier)
 }
 
+func TestWriteID3TagsAlbumArtistFirstUsesOnlyFirstArtist(t *testing.T) {
+	mp3Path := filepath.Join(t.TempDir(), "track.mp3")
+	require.NoError(t, os.WriteFile(mp3Path, []byte("audio payload"), 0644))
+
+	track := model.Track{
+		Title: "Song",
+		Artists: []model.Artist{
+			{Name: "Artist A"},
+			{Name: "Artist B"},
+		},
+		Albums: []model.Album{{Title: "Album"}},
+	}
+
+	require.NoError(t, writeID3Tags(mp3Path, track, "", true))
+
+	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
+	require.NoError(t, err)
+	defer tag.Close()
+
+	assert.Equal(t, "Artist A, Artist B", tag.Artist())
+	assert.Equal(t, "Artist A", tag.GetTextFrame(tag.CommonID("Band/Orchestra/Accompaniment")).Text)
+}
+
 func TestWriteID3TagsUsesReleaseDateYearFallback(t *testing.T) {
 	mp3Path := filepath.Join(t.TempDir(), "track.mp3")
 	require.NoError(t, os.WriteFile(mp3Path, []byte("audio payload"), 0644))
@@ -92,7 +116,7 @@ func TestWriteID3TagsUsesReleaseDateYearFallback(t *testing.T) {
 		MetaData: model.MetaData{Year: 2021},
 	}
 
-	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+	require.NoError(t, writeID3Tags(mp3Path, track, "", false))
 
 	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
 	require.NoError(t, err)
@@ -111,7 +135,7 @@ func TestWriteID3TagsIgnoresMissingCover(t *testing.T) {
 		Title: "Song",
 	}
 
-	require.NoError(t, writeID3Tags(mp3Path, track, filepath.Join(t.TempDir(), "missing.jpg")))
+	require.NoError(t, writeID3Tags(mp3Path, track, filepath.Join(t.TempDir(), "missing.jpg"), false))
 }
 
 func TestWriteID3TagsPreservesUnrelatedCommentsAndUpdatesSource(t *testing.T) {
@@ -150,7 +174,7 @@ func TestWriteID3TagsPreservesUnrelatedCommentsAndUpdatesSource(t *testing.T) {
 			ID: model.FlexibleID("456"),
 		}},
 	}
-	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+	require.NoError(t, writeID3Tags(mp3Path, track, "", false))
 
 	comments := readID3Comments(t, mp3Path)
 	assert.Equal(t, map[string]string{
@@ -172,8 +196,8 @@ func TestWriteID3TagsSourceCommentIsIdempotent(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, writeID3Tags(mp3Path, track, ""))
-	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+	require.NoError(t, writeID3Tags(mp3Path, track, "", false))
+	require.NoError(t, writeID3Tags(mp3Path, track, "", false))
 
 	comments := readID3Comments(t, mp3Path)
 	require.Len(t, comments, 1)
@@ -199,7 +223,7 @@ func readID3Comments(t *testing.T, mp3Path string) map[string]string {
 }
 
 func TestWriteID3TagsReturnsErrorForMissingMP3(t *testing.T) {
-	err := writeID3Tags(filepath.Join(t.TempDir(), "missing.mp3"), model.Track{Title: "Song"}, "")
+	err := writeID3Tags(filepath.Join(t.TempDir(), "missing.mp3"), model.Track{Title: "Song"}, "", false)
 
 	assert.Error(t, err)
 }

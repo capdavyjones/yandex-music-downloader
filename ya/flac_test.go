@@ -40,7 +40,7 @@ func TestWriteFLACTagsWritesVorbisCommentsAndCover(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, writeFLACTags(flacPath, track, coverPath))
+	require.NoError(t, writeFLACTags(flacPath, track, coverPath, false))
 
 	file, err := flac.ParseFile(flacPath)
 	require.NoError(t, err)
@@ -75,6 +75,37 @@ func TestWriteFLACTagsWritesVorbisCommentsAndCover(t *testing.T) {
 	assert.Equal(t, "image/png", picture.MIME)
 }
 
+func TestWriteFLACTagsAlbumArtistFirstUsesOnlyFirstArtist(t *testing.T) {
+	flacPath := filepath.Join(t.TempDir(), "track.flac")
+	require.NoError(t, os.WriteFile(flacPath, minimalFLACBytes(), 0644))
+
+	track := model.Track{
+		Title: "Song",
+		Artists: []model.Artist{
+			{Name: "Artist A"},
+			{Name: "Artist B"},
+		},
+		Albums: []model.Album{{Title: "Album"}},
+	}
+
+	require.NoError(t, writeFLACTags(flacPath, track, "", true))
+
+	file, err := flac.ParseFile(flacPath)
+	require.NoError(t, err)
+
+	var comments *flacvorbis.MetaDataBlockVorbisComment
+	for _, block := range file.Meta {
+		if block.Type == flac.VorbisComment {
+			comments, err = flacvorbis.ParseFromMetaDataBlock(*block)
+			require.NoError(t, err)
+		}
+	}
+
+	require.NotNil(t, comments)
+	assertFLACComment(t, comments, "ARTIST", "Artist A, Artist B")
+	assertFLACComment(t, comments, "ALBUMARTIST", "Artist A")
+}
+
 func TestWriteFLACTagsIgnoresInvalidCover(t *testing.T) {
 	dir := t.TempDir()
 	flacPath := filepath.Join(dir, "track.flac")
@@ -82,7 +113,7 @@ func TestWriteFLACTagsIgnoresInvalidCover(t *testing.T) {
 	require.NoError(t, os.WriteFile(flacPath, minimalFLACBytes(), 0644))
 	require.NoError(t, os.WriteFile(coverPath, []byte("not an image"), 0644))
 
-	err := writeFLACTags(flacPath, model.Track{ID: model.FlexibleID("123"), Title: "Song"}, coverPath)
+	err := writeFLACTags(flacPath, model.Track{ID: model.FlexibleID("123"), Title: "Song"}, coverPath, false)
 
 	require.NoError(t, err)
 	file, err := flac.ParseFile(flacPath)

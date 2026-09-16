@@ -35,6 +35,7 @@ A TUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 -   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
+-   Optional: write only the first artist into Album Artist (keeps the full Artist list): `./yamdl --album-artist-first`
 -   Optional: point to a YAML config for file layout: `./yamdl --config ./yamdl.yaml`
 
 ## Development
@@ -74,6 +75,7 @@ Available options:
 - `--config <path>` loads file-layout settings from YAML. If omitted, `./yamdl.yaml` is used when present.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
+- `--album-artist-first` writes only the first track artist into Album Artist, while Artist keeps the full comma-separated list. Useful for Plex and similar libraries that otherwise create a fake composite artist. Can also be enabled via `album_artist_first` in YAML; either the flag or the config key turns it on.
 
 During the download, each track event is appended to stdout as it happens. A track first prints `[downloading] Artist — Track title`, then a final line such as `[done] Artist — Track title` or `[already exists] Artist — Track title`. Previous lines are never cleared or overwritten. Press `Ctrl+C` to stop scheduling remaining tracks: in-flight downloads can still finish. Press `Ctrl+C` again to force-cancel their active HTTP requests. The command then prints `Interrupted: remaining tracks stayed queued` followed by the partial summary and exits with code 130.
 
@@ -92,6 +94,7 @@ Output: ./downloads
 By default, tracks are saved as `Artist - Title.ext` directly in the output directory. To nest files by artist and/or release, create `yamdl.yaml` in the working directory (or pass `--config`):
 
 ```yaml
+album_artist_first: true
 layout:
   by_artist: true
   by_album: true
@@ -100,6 +103,7 @@ layout:
   track_file_mask: "{nn} - {title}"
 ```
 
+- `album_artist_first` writes only the first track artist into the Album Artist tag, while Artist keeps the full list. Default is `false` (unchanged tagging). The CLI flag `--album-artist-first` also enables this.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.

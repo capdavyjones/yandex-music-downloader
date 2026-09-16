@@ -13,7 +13,7 @@ import (
 	flac "github.com/go-flac/go-flac"
 )
 
-func writeFLACTags(filename string, track model.Track, coverPath string) error {
+func writeFLACTags(filename string, track model.Track, coverPath string, albumArtistFirst bool) error {
 	file, err := flac.ParseFile(filename)
 	if err != nil {
 		return err
@@ -25,7 +25,7 @@ func writeFLACTags(filename string, track model.Track, coverPath string) error {
 
 	if album := firstAlbum(track); album != nil {
 		addFLACComment(comments, "ALBUM", strings.TrimSpace(album.Title))
-		addFLACComment(comments, "ALBUMARTIST", strings.TrimSpace(track.ArtistsString()))
+		addFLACComment(comments, "ALBUMARTIST", albumArtistTag(track, albumArtistFirst))
 		addFLACComment(comments, "GENRE", strings.TrimSpace(album.Genre))
 		if album.TrackPosition.Index > 0 {
 			addFLACComment(comments, "TRACKNUMBER", strconv.Itoa(album.TrackPosition.Index))

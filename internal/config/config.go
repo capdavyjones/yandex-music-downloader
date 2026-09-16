@@ -34,7 +34,8 @@ var trackPlaceholders = map[string]struct{}{
 
 // Config holds the application settings read from YAML.
 type Config struct {
-	Layout Layout `yaml:"layout"`
+	AlbumArtistFirst bool   `yaml:"album_artist_first"`
+	Layout           Layout `yaml:"layout"`
 }
 
 // Layout defines how downloaded files are arranged by artist and release.
