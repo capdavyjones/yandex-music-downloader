@@ -1010,7 +1010,7 @@ func TestCountStatus(t *testing.T) {
 }
 
 func TestRenderHeader(t *testing.T) {
-	header := renderHeader(5, 10, 8, 2, "", 80)
+	header := renderHeader(5, 10, 8, 2)
 	assert.Contains(t, header, "Total tracks:")
 	assert.Contains(t, header, "10")
 	assert.Contains(t, header, "To download:")
@@ -1020,16 +1020,7 @@ func TestRenderHeader(t *testing.T) {
 	assert.Contains(t, header, "Errors:")
 	assert.Contains(t, header, "2")
 	assert.NotContains(t, header, "\nTo download")
-	assert.NotContains(t, header, "Retry in")
-}
-
-func TestRenderHeaderIncludesRetryStatusOnTheRight(t *testing.T) {
-	retry := dimGrayForeground.Render("Retry in 8s · 2 left")
-	header := renderHeader(5, 10, 8, 2, retry, 100)
-	plain := ansi.Strip(header)
-	assert.Contains(t, plain, "Total tracks:")
-	assert.Contains(t, plain, "Retry in 8s · 2 left")
-	assert.True(t, strings.Index(plain, "Total tracks:") < strings.Index(plain, "Retry in"))
+	assert.NotContains(t, header, "left")
 }
 
 func TestApplyRetryWaitTracksActiveCountdown(t *testing.T) {
@@ -1038,12 +1029,10 @@ func TestApplyRetryWaitTracksActiveCountdown(t *testing.T) {
 
 	m.applyRetryWait("a", &DownloadRetryWait{Remaining: 2, Until: until}, false)
 	require.Len(t, m.retryWaits, 1)
-	status := ansi.Strip(m.renderRetryStatus(until.Add(-8 * time.Second)))
-	assert.Equal(t, "Retry in 8s · 2 left", status)
+	assert.Equal(t, 2, m.retryWaits["a"].Remaining)
 
 	m.applyRetryWait("a", &DownloadRetryWait{Remaining: 0, Until: time.Time{}}, false)
 	assert.Empty(t, m.retryWaits)
-	assert.Empty(t, m.renderRetryStatus(time.Now()))
 }
 
 func TestDownloadProgressUpdateStartsRetryTick(t *testing.T) {
@@ -1067,7 +1056,34 @@ func TestDownloadProgressUpdateStartsRetryTick(t *testing.T) {
 		retryWait: &DownloadRetryWait{Remaining: 0},
 	})
 	assert.Empty(t, updated.retryWaits)
-	assert.Empty(t, ansi.Strip(updated.renderRetryStatus(time.Now())))
+}
+
+func TestTrackListShowsRetryCountdown(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.tracksProgress[0].uid = "track-1"
+	m.tracksProgress[0].status = TrackStatusDownloading
+	m.retryWaits["track-1"] = DownloadRetryWait{Remaining: 2, Until: time.Now().Add(9 * time.Second)}
+	m.updateTrackList()
+
+	item, ok := m.trackList.Items()[0].(TrackListItem)
+	require.True(t, ok)
+	assert.Equal(t, "9s · 2 left", item.statusLabel())
+}
+
+func TestDownloadRetryTickRefreshesTrackListCountdown(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.tracksProgress[0].uid = "track-1"
+	m.tracksProgress[0].status = TrackStatusDownloading
+	m.retryWaits["track-1"] = DownloadRetryWait{Remaining: 1, Until: time.Now().Add(4 * time.Second)}
+
+	updated, cmd := m.Update(downloadRetryTickMsg{})
+	require.NotNil(t, cmd)
+
+	item, ok := updated.trackList.Items()[0].(TrackListItem)
+	require.True(t, ok)
+	assert.Equal(t, "4s · 1 left", item.statusLabel())
 }
 
 func TestQueueHeaderShowsBrandFormatAndVerboseStats(t *testing.T) {

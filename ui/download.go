@@ -505,6 +505,7 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 	case downloadRetryTickMsg:
 		if len(m.retryWaits) > 0 {
+			m.updateTrackList()
 			cmd = scheduleDownloadRetryTick()
 		}
 
@@ -591,13 +592,6 @@ func (m DownloadModel) fixedDownloadHeight() int {
 
 func (m DownloadModel) headerBlock() string {
 	header := m.renderQueueHeader()
-	if retry := m.renderRetryStatus(time.Now()); retry != "" {
-		width := m.trackList.Width()
-		if width <= 0 {
-			width = responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
-		}
-		header = placeHeaderLine(header, retry, width)
-	}
 	info := m.selectedTrackInfo
 	if m.errorMsg != "" {
 		info = redForeground.Render(m.errorMsg)
@@ -756,13 +750,9 @@ func (m *DownloadModel) updateTrackList() {
 		if m.hideDuplicates && tp.status == TrackStatusDuplicate {
 			continue
 		}
-		items = append(items, TrackListItem{
-			uid:               tp.uid,
-			track:             tp.track,
-			status:            tp.status,
-			format:            tp.format,
-			trackNumberDigits: trackNumberDigits,
-		})
+		item := m.trackListItem(tp, "")
+		item.trackNumberDigits = trackNumberDigits
+		items = append(items, item)
 	}
 	m.trackList.SetItems(items)
 }
@@ -795,15 +785,24 @@ func (m *DownloadModel) groupedTrackListItems() []list.Item {
 		if tp.track != nil {
 			titleLabel = layout.ApplyTrackFileMask(trackMask, *tp.track)
 		}
-		items = append(items, TrackListItem{
-			uid:        tp.uid,
-			track:      tp.track,
-			status:     tp.status,
-			format:     tp.format,
-			titleLabel: titleLabel,
-		})
+		items = append(items, m.trackListItem(tp, titleLabel))
 	}
 	return items
+}
+
+func (m DownloadModel) trackListItem(tp *TrackProgress, titleLabel string) TrackListItem {
+	item := TrackListItem{
+		uid:        tp.uid,
+		track:      tp.track,
+		status:     tp.status,
+		format:     tp.format,
+		titleLabel: titleLabel,
+	}
+	if wait, ok := m.retryWaits[tp.uid]; ok {
+		item.retryIn = retrySecondsLeft(wait.Until, time.Now())
+		item.retriesLeft = wait.Remaining
+	}
+	return item
 }
 
 func (m *DownloadModel) selectedItemInfo() string {
@@ -877,27 +876,13 @@ func completedTrackCount(tracks []*TrackProgress) int {
 		countStatus(tracks, TrackStatusAlreadyExists)
 }
 
-func renderHeader(completed, total, downloadable, errors int, retryText string, width int) string {
-	left := strings.Join([]string{
+func renderHeader(completed, total, downloadable, errors int) string {
+	return strings.Join([]string{
 		renderCounter("Total tracks", total),
 		renderCounter("To download", downloadable),
 		renderCounter("Completed", completed),
 		renderCounter("Errors", errors),
-	}, "  ")
-	if retryText == "" {
-		return left + "\n"
-	}
-	return placeHeaderLine(left, retryText, width) + "\n"
-}
-
-func placeHeaderLine(left, right string, width int) string {
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(right)
-	gap := width - leftWidth - rightWidth
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + right
+	}, "  ") + "\n"
 }
 
 func renderCounter(label string, value int) string {
@@ -956,33 +941,6 @@ func (m DownloadModel) renderQueueHeader() string {
 // from the YAML config, then ./downloads.
 func (m DownloadModel) targetDir() string {
 	return utils.ResolveOutputDirWithFallback(m.outputDir)
-}
-
-func (m DownloadModel) renderRetryStatus(now time.Time) string {
-	wait, ok := m.soonestRetryWait()
-	if !ok {
-		return ""
-	}
-	return dimGrayForeground.Render(fmt.Sprintf(
-		"Retry in %ds · %d left",
-		retrySecondsLeft(wait.Until, now),
-		wait.Remaining,
-	))
-}
-
-func (m DownloadModel) soonestRetryWait() (DownloadRetryWait, bool) {
-	var best DownloadRetryWait
-	found := false
-	for _, wait := range m.retryWaits {
-		if wait.Remaining <= 0 {
-			continue
-		}
-		if !found || wait.Until.Before(best.Until) {
-			best = wait
-			found = true
-		}
-	}
-	return best, found
 }
 
 func (m *DownloadModel) applyRetryWait(uid string, wait *DownloadRetryWait, completed bool) {

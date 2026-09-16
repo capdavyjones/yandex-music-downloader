@@ -76,6 +76,8 @@ type TrackListItem struct {
 	track             *model.Track
 	status            TrackStatus
 	format            string
+	retryIn           int
+	retriesLeft       int
 	trackNumberDigits int
 	titleLabel        string
 	numberLabel       string
@@ -202,18 +204,20 @@ func (t TrackListItem) renderTrack(w io.Writer, m list.Model, index int, item Tr
 	statusPlain := formatStatusColumn(item.statusLabel())
 	statusStr := statusPlain
 
-	switch item.status {
-	case TrackStatusDuplicate:
+	switch {
+	case item.retryIn > 0 || item.retriesLeft > 0:
+		statusStr = spinnerStyle.Render(statusPlain)
+	case item.status == TrackStatusDuplicate:
 		statusStr = duplicateStatusStyle.Render(statusPlain)
-	case TrackStatusDownloaded:
+	case item.status == TrackStatusDownloaded:
 		statusStr = downloadedStatusStyle.Render(statusPlain)
-	case TrackStatusError:
+	case item.status == TrackStatusError:
 		statusStr = errorStatusStyle.Render(statusPlain)
-	case TrackStatusNotAvailable:
+	case item.status == TrackStatusNotAvailable:
 		statusStr = notAvailableStatusStyle.Render(statusPlain)
-	case TrackStatusAlreadyExists:
+	case item.status == TrackStatusAlreadyExists:
 		statusStr = alreadyExistsStatusStyle.Render(statusPlain)
-	case TrackStatusReady:
+	case item.status == TrackStatusReady:
 		statusStr = readyStatusStyle.Render(statusPlain)
 	}
 
@@ -341,6 +345,9 @@ func truncateToWidth(s string, width int) string {
 }
 
 func (t TrackListItem) statusLabel() string {
+	if t.retryIn > 0 || t.retriesLeft > 0 {
+		return fmt.Sprintf("%ds · %d left", t.retryIn, t.retriesLeft)
+	}
 	if t.status != TrackStatusDownloaded {
 		return t.status.String()
 	}
