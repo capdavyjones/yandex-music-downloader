@@ -20,11 +20,11 @@ func TestParseTUIOptionsRejectsPositionalArgs(t *testing.T) {
 
 func TestParseTUIOptionsAcceptsTimeoutAndSkipCover(t *testing.T) {
 	var stderr bytes.Buffer
-	parsed := parseTUIOptions([]string{"--timeout", "30", "--skip-cover"}, &stderr)
+	parsed := parseTUIOptions([]string{"--timeout", "30", "--skip-cover", "--album-artist-first"}, &stderr)
 	if !parsed.proceed {
 		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
 	}
-	if parsed.options.timeoutSeconds != 30 || !parsed.options.skipCover {
+	if parsed.options.timeoutSeconds != 30 || !parsed.options.skipCover || !parsed.options.albumArtistFirst {
 		t.Fatalf("unexpected options: %#v", parsed.options)
 	}
 }
@@ -64,6 +64,7 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 		"--output", "./music",
 		"--timeout", "180",
 		"--skip-cover",
+		"--album-artist-first",
 	}, &stderr)
 
 	if !parsed.proceed {
@@ -73,7 +74,7 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 	if options.token != "abc123" || options.link != "https://music.yandex.ru/album/123" {
 		t.Fatalf("unexpected required options: %#v", options)
 	}
-	if options.format != ya.AudioFormatFLAC || options.output != "./music" || options.timeoutSeconds != 180 || !options.skipCover {
+	if options.format != ya.AudioFormatFLAC || options.output != "./music" || options.timeoutSeconds != 180 || !options.skipCover || !options.albumArtistFirst {
 		t.Fatalf("unexpected parsed options: %#v", options)
 	}
 }

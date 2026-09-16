@@ -33,6 +33,16 @@ func (t Track) ArtistsString() string {
 	return strings.Join(artists, ", ")
 }
 
+// FirstArtistName returns the name of the track's first non-empty artist.
+func (t Track) FirstArtistName() string {
+	for _, artist := range t.Artists {
+		if name := strings.TrimSpace(artist.Name); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
 func (t Track) DisplayLabel() string {
 	title := strings.TrimSpace(t.FullTitle())
 	artists := strings.TrimSpace(t.ArtistsString())

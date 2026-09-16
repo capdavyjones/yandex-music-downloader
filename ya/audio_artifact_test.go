@@ -468,7 +468,7 @@ func TestAudioArtifactMp3TaggerReturnsWriteID3TagsError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.mp3")
 
 	err := tagger.Write(missing, artifactMetadata{Track: model.Track{Title: "Song"}})
-	want := writeID3Tags(missing, model.Track{Title: "Song"}, "")
+	want := writeID3Tags(missing, model.Track{Title: "Song"}, "", false)
 	require.Error(t, err)
 	assert.Equal(t, want.Error(), err.Error())
 }
@@ -510,7 +510,7 @@ func TestAudioArtifactFlacTaggerReturnsWriteFLACTagsError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.flac")
 
 	err := tagger.Write(missing, artifactMetadata{Track: model.Track{Title: "Song"}})
-	want := writeFLACTags(missing, model.Track{Title: "Song"}, "")
+	want := writeFLACTags(missing, model.Track{Title: "Song"}, "", false)
 	require.Error(t, err)
 	assert.Equal(t, want.Error(), err.Error())
 }
@@ -531,7 +531,7 @@ func TestAudioArtifactM4aTaggerDelegatesToClientM4ATagger(t *testing.T) {
 
 	require.Equal(t, 1, recorder.calls)
 	assert.Equal(t, []string{path}, recorder.paths)
-	assert.Equal(t, m4aTagInputForTrack(track, album, "image/png", onePixelPNG()), recorder.lastTags)
+	assert.Equal(t, m4aTagInputForTrack(track, album, "image/png", onePixelPNG(), false), recorder.lastTags)
 }
 
 func TestAudioArtifactM4aTaggerCoverHandling(t *testing.T) {
@@ -573,7 +573,7 @@ func TestAudioArtifactM4aTaggerCoverHandling(t *testing.T) {
 		tagger := m4aArtifactTagger{client: client}
 		require.NoError(t, tagger.Write(path, artifactMetadata{Track: track, CoverPath: ""}))
 
-		want := m4aTagInputForTrack(track, album, "", nil)
+		want := m4aTagInputForTrack(track, album, "", nil, false)
 		assert.Equal(t, want, recorder.lastTags)
 		assert.Empty(t, recorder.lastTags.CoverMIME)
 		assert.Empty(t, recorder.lastTags.CoverData)
