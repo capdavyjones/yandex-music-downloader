@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- add `album_artist_first` / `--album-artist-first` so Album Artist keeps only the first performer while Artist stays the full list (helps Plex and similar libraries avoid fake composite artists)
 - add `download_retries` and `download_retry_interval` to YAML config for automatic retry handling on failed track downloads
 - replace existing M4A cover art when embedding release artwork so `duplicates: copy` clones do not keep the source album cover as the first image
 - prefer the release album cover over track-level cover URI so shared track IDs keep the artwork of the album being tagged

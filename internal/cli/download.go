@@ -103,8 +103,9 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 			DownloadRetries:       cfg.DownloadRetries,
 			DownloadRetryInterval: cfg.DownloadRetryInterval,
 			Options: ya.DownloadOptions{
-				SkipCover:   options.skipCover,
-				AudioFormat: options.format,
+				SkipCover:        options.skipCover,
+				AlbumArtistFirst: options.albumArtistFirst || cfg.AlbumArtistFirst,
+				AudioFormat:      options.format,
 			},
 		}),
 		interrupts.first,

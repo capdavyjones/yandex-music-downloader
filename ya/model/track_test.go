@@ -2,6 +2,32 @@ package model
 
 import "testing"
 
+func TestTrackFirstArtistName(t *testing.T) {
+	tests := []struct {
+		name  string
+		track Track
+		want  string
+	}{
+		{
+			name:  "first non-empty",
+			track: Track{Artists: []Artist{{Name: "  "}, {Name: " Artist A "}, {Name: "Artist B"}}},
+			want:  "Artist A",
+		},
+		{
+			name:  "empty artists",
+			track: Track{},
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.track.FirstArtistName(); got != tt.want {
+				t.Fatalf("FirstArtistName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTrackDisplayLabel(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -26,7 +26,7 @@ func TestCloneTaggedTrackRewritesAlbumTags(t *testing.T) {
 		Title:   "Song",
 		Artists: []model.Artist{{Name: "Artist"}},
 		Albums:  []model.Album{{Title: "Album One", Year: 1975, TrackPosition: model.TrackPosition{Index: 1}}},
-	}, ""))
+	}, "", false))
 
 	client := NewClient(utils.NewHttpClient())
 	destTrack := model.Track{

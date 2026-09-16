@@ -16,12 +16,13 @@ func TestM4ATagInputForTrack(t *testing.T) {
 	cover := onePixelPNG()
 
 	tests := []struct {
-		name      string
-		track     model.Track
-		album     model.Album
-		coverMIME string
-		cover     []byte
-		want      m4aTagInput
+		name             string
+		track            model.Track
+		album            model.Album
+		coverMIME        string
+		cover            []byte
+		albumArtistFirst bool
+		want             m4aTagInput
 	}{
 		{
 			name: "full album",
@@ -129,6 +130,30 @@ func TestM4ATagInputForTrack(t *testing.T) {
 			},
 		},
 		{
+			name: "album artist first keeps full artist list",
+			track: model.Track{
+				ID:      model.FlexibleID("123"),
+				Title:   "Song",
+				Artists: []model.Artist{{Name: "Artist A"}, {Name: "Artist B"}},
+				Albums: []model.Album{{
+					ID:    model.FlexibleID("456"),
+					Title: "Album",
+				}},
+			},
+			album: model.Album{
+				ID:    model.FlexibleID("456"),
+				Title: "Album",
+			},
+			albumArtistFirst: true,
+			want: m4aTagInput{
+				Title:       "Song",
+				Artist:      "Artist A, Artist B",
+				Album:       "Album",
+				AlbumArtist: "Artist A",
+				SourceURL:   "https://music.yandex.ru/album/456/track/123",
+			},
+		},
+		{
 			name: "empty cover",
 			track: model.Track{
 				ID:      model.FlexibleID("1"),
@@ -147,7 +172,7 @@ func TestM4ATagInputForTrack(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := m4aTagInputForTrack(tt.track, tt.album, tt.coverMIME, tt.cover)
+			got := m4aTagInputForTrack(tt.track, tt.album, tt.coverMIME, tt.cover, tt.albumArtistFirst)
 			assert.Equal(t, tt.want, got)
 		})
 	}

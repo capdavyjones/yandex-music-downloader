@@ -34,7 +34,7 @@ type m4aTagInput struct {
 	CoverData   []byte
 }
 
-func m4aTagInputForTrack(track model.Track, album model.Album, coverMIME string, cover []byte) m4aTagInput {
+func m4aTagInputForTrack(track model.Track, album model.Album, coverMIME string, cover []byte, albumArtistFirst bool) m4aTagInput {
 	tags := m4aTagInput{
 		Title:     strings.TrimSpace(track.FullTitle()),
 		Artist:    strings.TrimSpace(track.ArtistsString()),
@@ -43,7 +43,7 @@ func m4aTagInputForTrack(track model.Track, album model.Album, coverMIME string,
 
 	if albumTitle := strings.TrimSpace(album.Title); albumTitle != "" {
 		tags.Album = albumTitle
-		tags.AlbumArtist = strings.TrimSpace(track.ArtistsString())
+		tags.AlbumArtist = albumArtistTag(track, albumArtistFirst)
 	}
 	if genre := strings.TrimSpace(album.Genre); genre != "" {
 		tags.Genre = genre

@@ -25,6 +25,7 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
 	assert.False(t, cfg.Layout.ByPlaylist)
+	assert.False(t, cfg.AlbumArtistFirst)
 	assert.Equal(t, DefaultAlbumMask, cfg.Layout.AlbumDirMask)
 	assert.Equal(t, DefaultTrackMask, cfg.Layout.TrackFileMask)
 }
@@ -116,6 +117,15 @@ func TestLoadParsesFormat(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, "flac", cfg.Format)
+}
+
+func TestLoadParsesAlbumArtistFirst(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yamdl.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("album_artist_first: true\n"), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.AlbumArtistFirst)
 }
 
 func TestLoadEmptyFormatDefaultsToMP3(t *testing.T) {

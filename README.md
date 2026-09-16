@@ -35,6 +35,7 @@ A TUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 -   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
+-   Optional: write only the first artist into Album Artist (keeps the full Artist list): `./yamdl --album-artist-first`
 -   Optional: point to a YAML config for file layout, default format, and download directory: `./yamdl --config ./yamdl.yaml`
 
 ## Development
@@ -74,6 +75,7 @@ Available options:
 - `--config <path>` loads YAML settings for file layout, default format, and download directory. If omitted, `./yamdl.yaml` is used when present.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
+- `--album-artist-first` writes only the first track artist into Album Artist, while Artist keeps the full comma-separated list. Useful for Plex and similar libraries that otherwise create a fake composite artist. Can also be enabled via `album_artist_first` in YAML; either the flag or the config key turns it on.
 
 During the download, each track event is appended to stdout as it happens. A track first prints `[downloading] Artist — Track title`, then a final line such as `[done] Artist — Track title` or `[already exists] Artist — Track title`. Previous lines are never cleared or overwritten. Press `Ctrl+C` to stop scheduling remaining tracks: in-flight downloads can still finish. Press `Ctrl+C` again to force-cancel their active HTTP requests. The command then prints `Interrupted: remaining tracks stayed queued` followed by the partial summary and exits with code 130.
 
@@ -97,6 +99,7 @@ download_dir: ./downloads
 duplicates: id
 download_retries: 3
 download_retry_interval: 10
+album_artist_first: true
 layout:
   by_artist: true
   by_album: true
@@ -110,6 +113,7 @@ layout:
 - `duplicates` controls how repeated track IDs are handled in both the TUI and `yamdl download`. `id` is the default if the key is missing: later occurrences of the same ID are skipped. `none` downloads every occurrence. `copy` downloads the audio once and, when the destination path differs (typically artist discography with `by_album`), copies that file into the other album folder and rewrites tags for that release. Same path stays a skipped duplicate. In the TUI, `id` and `copy` both label later occurrences as `Duplicate` before download starts; with `copy` those rows stay in the download queue.
 - `download_retries` sets the number of retry attempts after a failed track download. Default is `0` (no retries). When a track download fails, it will be retried up to this many times.
 - `download_retry_interval` sets the number of seconds to wait between retry attempts. Default is `10` seconds.
+- `album_artist_first` writes only the first track artist into the Album Artist tag, while Artist keeps the full list. Default is `false` (unchanged tagging). The CLI flag `--album-artist-first` also enables this.
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.

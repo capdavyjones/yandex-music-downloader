@@ -52,6 +52,7 @@ type Config struct {
 	Duplicates            Duplicates `yaml:"duplicates"`
 	DownloadRetries       int        `yaml:"download_retries"`
 	DownloadRetryInterval int        `yaml:"download_retry_interval"`
+	AlbumArtistFirst      bool       `yaml:"album_artist_first"`
 	Layout                Layout     `yaml:"layout"`
 }
 

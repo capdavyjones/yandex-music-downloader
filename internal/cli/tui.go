@@ -41,8 +41,9 @@ func runTUI(args []string, stderr io.Writer) int {
 	defer signal.Stop(sigCh)
 
 	downloadOptions := ya.DownloadOptions{
-		SkipCover:   options.skipCover,
-		AudioFormat: resolveAudioFormat("", cfg.Format),
+		SkipCover:        options.skipCover,
+		AlbumArtistFirst: options.albumArtistFirst || cfg.AlbumArtistFirst,
+		AudioFormat:      resolveAudioFormat("", cfg.Format),
 	}
 	prog := tea.NewProgram(ui.StartUiWithLayout(
 		client,
@@ -63,6 +64,7 @@ func runTUI(args []string, stderr io.Writer) int {
 		"log_path", downloadLogger.Path(),
 		"download_timeout_seconds", options.timeoutSeconds,
 		"skip_cover", options.skipCover,
+		"album_artist_first", downloadOptions.AlbumArtistFirst,
 	)
 
 	if os.Getenv("DEBUG") != "" {

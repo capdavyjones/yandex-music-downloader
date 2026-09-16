@@ -15,7 +15,7 @@ const (
 	yandexSourceURLCommentDescription = "yandex-music-downloader:source-url"
 )
 
-func writeID3Tags(filename string, track model.Track, coverPath string) error {
+func writeID3Tags(filename string, track model.Track, coverPath string, albumArtistFirst bool) error {
 	tag, err := id3v2.Open(filename, id3v2.Options{Parse: true})
 	if err != nil {
 		return err
@@ -44,6 +44,13 @@ func writeID3Tags(filename string, track model.Track, coverPath string) error {
 		}
 		if album.TrackPosition.Index > 0 {
 			tag.AddTextFrame(tag.CommonID("Track number/Position in set"), id3v2.EncodingUTF8, strconv.Itoa(album.TrackPosition.Index))
+		}
+	}
+
+	// По умолчанию MP3 не пишет Album Artist; опция включает только первого исполнителя.
+	if albumArtistFirst {
+		if albumArtist := strings.TrimSpace(track.FirstArtistName()); albumArtist != "" {
+			tag.AddTextFrame(tag.CommonID("Band/Orchestra/Accompaniment"), id3v2.EncodingUTF8, albumArtist)
 		}
 	}
 
@@ -84,6 +91,15 @@ func firstAlbum(track model.Track) *model.Album {
 		return nil
 	}
 	return &track.Albums[0]
+}
+
+// albumArtistTag выбирает значение Album Artist: при albumArtistFirst — только первый
+// исполнитель, иначе полный список как в Artist.
+func albumArtistTag(track model.Track, albumArtistFirst bool) string {
+	if albumArtistFirst {
+		return strings.TrimSpace(track.FirstArtistName())
+	}
+	return strings.TrimSpace(track.ArtistsString())
 }
 
 func trackYear(track model.Track) string {
