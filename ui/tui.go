@@ -73,6 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.initState = UiStateDownloading
 		m.downloadModel.folderArtist = msg.FolderArtist
 		m.downloadModel.folderPlaylist = msg.FolderPlaylist
+		m.downloadModel.orderByAlbumPosition = msg.OrderByAlbumPosition
 		m.downloadModel.AddTracks(msg.Tracks)
 		m.downloadModel.SetSkippedAlbums(msg.SkippedAlbums)
 		m.resizeToWindow()

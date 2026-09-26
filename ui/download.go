@@ -160,11 +160,12 @@ type DownloadProgressUpdateMsg struct {
 
 type DownloadModel struct {
 	// External dependencies.
-	client          *ya.Client
-	downloadOptions ya.DownloadOptions
-	settings        config.Config // settings from YAML; each feature reads its own field
-	folderArtist    string
-	folderPlaylist  string
+	client               *ya.Client
+	downloadOptions      ya.DownloadOptions
+	settings             config.Config // settings from YAML; each feature reads its own field
+	folderArtist         string
+	folderPlaylist       string
+	orderByAlbumPosition bool
 
 	// Error message.
 	errorMsg string
@@ -279,6 +280,7 @@ func (m *DownloadModel) Reset() {
 	m.sessionEvents = nil
 	m.folderArtist = ""
 	m.folderPlaylist = ""
+	m.orderByAlbumPosition = false
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
@@ -316,7 +318,8 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	}
 
 	findDuplicates(m.tracksProgress)
-	if m.groupsByAlbum() {
+	// Albums and discographies keep release order; other sources are sorted by title.
+	if m.groupsByAlbum() || m.orderByAlbumPosition {
 		sortTracksByAlbum(m.tracksProgress)
 	} else {
 		sortTracksByTitle(m.tracksProgress)

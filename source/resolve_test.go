@@ -99,7 +99,57 @@ func TestResolveAlbumFlattensVolumes(t *testing.T) {
 	assert.Equal(t, "2", result.Tracks[1].ID.String())
 	assert.Equal(t, "Album", result.Tracks[0].Albums[0].Title)
 	assert.Equal(t, 1975, result.Tracks[0].Albums[0].Year)
+	assert.Equal(t, 1, result.Tracks[0].Albums[0].TrackPosition.Volume)
+	assert.Equal(t, 1, result.Tracks[0].Albums[0].TrackPosition.Index)
+	assert.Equal(t, 2, result.Tracks[1].Albums[0].TrackPosition.Volume)
+	assert.Equal(t, 1, result.Tracks[1].Albums[0].TrackPosition.Index)
 	assert.Empty(t, result.FolderArtist)
+}
+
+func TestResolveAlbumKeepsExplicitPositionAndIgnoresForeignAlbum(t *testing.T) {
+	client := &fakeSourceClient{
+		album: &model.Album{
+			ID:    model.FlexibleID("10"),
+			Title: "Compilation",
+			Year:  2001,
+			Volumes: [][]model.Track{
+				{
+					{
+						ID:    model.FlexibleID("1"),
+						Title: "From Single",
+						Albums: []model.Album{{
+							ID:            model.FlexibleID("99"),
+							Title:         "Original",
+							TrackPosition: model.TrackPosition{Volume: 1, Index: 9},
+						}},
+					},
+					{
+						ID:    model.FlexibleID("2"),
+						Title: "Second",
+						Albums: []model.Album{{
+							ID:            model.FlexibleID("10"),
+							Title:         "Compilation",
+							TrackPosition: model.TrackPosition{Volume: 1, Index: 2},
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := Resolve(client, "https://music.yandex.ru/album/10")
+	require.NoError(t, err)
+	require.Len(t, result.Tracks, 2)
+
+	assert.Equal(t, "10", result.Tracks[0].Albums[0].ID.String())
+	assert.Equal(t, "Compilation", result.Tracks[0].Albums[0].Title)
+	assert.Equal(t, 1, result.Tracks[0].Albums[0].TrackPosition.Index)
+	require.Len(t, result.Tracks[0].Albums, 2)
+	assert.Equal(t, "99", result.Tracks[0].Albums[1].ID.String())
+
+	assert.Equal(t, "10", result.Tracks[1].Albums[0].ID.String())
+	assert.Equal(t, 2, result.Tracks[1].Albums[0].TrackPosition.Index)
+	assert.Len(t, result.Tracks[1].Albums, 1)
 }
 
 func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
@@ -243,6 +293,55 @@ func TestResolveArtistFlattensAlbumsAndSetsFolderArtist(t *testing.T) {
 	assert.Equal(t, "Arrival", result.Tracks[0].Albums[0].Title)
 	assert.Equal(t, "20", result.Tracks[1].ID.String())
 	assert.Equal(t, 1975, result.Tracks[1].Albums[0].Year)
+	assert.Equal(t, 1, result.Tracks[0].Albums[0].TrackPosition.Index)
+	assert.Equal(t, 1, result.Tracks[1].Albums[0].TrackPosition.Index)
+}
+
+func TestResolveArtistKeepsPlaybackOrderInsideAlbum(t *testing.T) {
+	client := &fakeSourceClient{
+		artist: &model.Artist{ID: model.FlexibleID("170660"), Name: "ABBA"},
+		directAlbums: []model.Album{
+			{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976},
+		},
+		albumsByID: map[string]*model.Album{
+			"1": {
+				ID:    model.FlexibleID("1"),
+				Title: "Arrival",
+				Year:  1976,
+				Volumes: [][]model.Track{
+					{
+						{
+							ID:    model.FlexibleID("11"),
+							Title: "Mamma Mia",
+							Albums: []model.Album{{
+								ID:            model.FlexibleID("99"),
+								Title:         "Other",
+								TrackPosition: model.TrackPosition{Volume: 1, Index: 8},
+							}},
+						},
+						{
+							ID:    model.FlexibleID("10"),
+							Title: "Dancing Queen",
+							Albums: []model.Album{{
+								ID:            model.FlexibleID("1"),
+								Title:         "Arrival",
+								TrackPosition: model.TrackPosition{Volume: 1, Index: 2},
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.NoError(t, err)
+	require.Len(t, result.Tracks, 2)
+	assert.Equal(t, "11", result.Tracks[0].ID.String())
+	assert.Equal(t, "1", result.Tracks[0].Albums[0].ID.String())
+	assert.Equal(t, 1, result.Tracks[0].Albums[0].TrackPosition.Index)
+	assert.Equal(t, "10", result.Tracks[1].ID.String())
+	assert.Equal(t, 2, result.Tracks[1].Albums[0].TrackPosition.Index)
 }
 
 func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {

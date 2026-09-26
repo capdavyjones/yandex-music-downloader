@@ -240,6 +240,25 @@ func TestSourceSubmitGroupsArtistTracksByAlbum(t *testing.T) {
 	}, listItemLabels(updated.downloadModel.trackList.Items()))
 }
 
+func TestSourceSubmitOrdersAlbumTracksByPosition(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			albumTrack("1", "Zebra", "a", "Arrival", 1975, 1, 2),
+			albumTrack("2", "Alpha", "a", "Arrival", 1975, 1, 1),
+		},
+		OrderByAlbumPosition: true,
+	})
+	updated := updatedModel.(Model)
+
+	assert.True(t, updated.downloadModel.orderByAlbumPosition)
+	assert.Equal(t, []string{
+		"track:Alpha",
+		"track:Zebra",
+	}, listItemLabels(updated.downloadModel.trackList.Items()))
+}
+
 func TestSourceSubmitStoresFolderPlaylist(t *testing.T) {
 	m := StartUi(nil)
 

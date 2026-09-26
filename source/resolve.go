@@ -217,10 +217,56 @@ func flattenVolumes(album *model.Album) []model.Track {
 		return nil
 	}
 	var tracks []model.Track
-	for _, volume := range album.Volumes {
-		tracks = append(tracks, volume...)
+	for volumeIdx, volume := range album.Volumes {
+		for trackIdx, track := range volume {
+			// Position within the release being downloaded, not within another album from track.albums[0].
+			track.Albums = applyPlaybackAlbum(track.Albums, *album, model.TrackPosition{
+				Volume: volumeIdx + 1,
+				Index:  trackIdx + 1,
+			})
+			tracks = append(tracks, track)
+		}
 	}
 	return tracks
+}
+
+// applyPlaybackAlbum puts the release being downloaded first in the track's albums
+// and stores the track position in it: the one from the API or the place in volumes.
+func applyPlaybackAlbum(existing []model.Album, parent model.Album, fallback model.TrackPosition) []model.Album {
+	meta := parent
+	meta.Volumes = nil
+	meta.TrackPosition = fallback
+
+	parentID := parent.ID.String()
+	others := make([]model.Album, 0, len(existing))
+	for _, album := range existing {
+		if parentID != "" && album.ID.String() == parentID {
+			if album.TrackPosition.Index > 0 || album.TrackPosition.Volume > 0 {
+				meta.TrackPosition = album.TrackPosition
+			}
+			if strings.TrimSpace(meta.Title) == "" {
+				meta.Title = album.Title
+			}
+			if meta.Year == 0 {
+				meta.Year = album.Year
+			}
+			if strings.TrimSpace(meta.CoverURI) == "" {
+				meta.CoverURI = album.CoverURI
+			}
+			if len(meta.Artists) == 0 {
+				meta.Artists = album.Artists
+			}
+			if strings.TrimSpace(meta.Genre) == "" {
+				meta.Genre = album.Genre
+			}
+			if strings.TrimSpace(meta.ReleaseDate) == "" {
+				meta.ReleaseDate = album.ReleaseDate
+			}
+			continue
+		}
+		others = append(others, album)
+	}
+	return append([]model.Album{meta}, others...)
 }
 
 // attachAlbumMeta fills missing album metadata of each track from the release it is downloaded from.
