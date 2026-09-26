@@ -179,6 +179,7 @@ type DownloadModel struct {
 	downloadRetryInterval int
 	folderArtist          string
 	folderPlaylist        string
+	orderByAlbumPosition  bool
 
 	// Error message.
 	errorMsg string
@@ -321,6 +322,7 @@ func (m *DownloadModel) Reset() {
 	m.retryWaits = make(map[string]DownloadRetryWait)
 	m.folderArtist = ""
 	m.folderPlaylist = ""
+	m.orderByAlbumPosition = false
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
@@ -357,7 +359,8 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	}
 
 	findDuplicates(m.tracksProgress, m.duplicates)
-	if m.groupsByAlbum() {
+	// Альбом и дискография — в порядке релиза, остальные источники по названию.
+	if m.groupsByAlbum() || m.orderByAlbumPosition {
 		sortTracksByAlbum(m.tracksProgress)
 	} else {
 		sortTracksByTitle(m.tracksProgress)

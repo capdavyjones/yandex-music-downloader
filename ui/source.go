@@ -14,9 +14,10 @@ import (
 
 type (
 	SourceSubmitMsg struct {
-		Tracks         []model.Track
-		FolderArtist   string
-		FolderPlaylist string
+		Tracks               []model.Track
+		FolderArtist         string
+		FolderPlaylist       string
+		OrderByAlbumPosition bool
 	}
 
 	URLHandleErrorMsg string
@@ -115,6 +116,13 @@ func (m SourceModel) handleEnterKey() (SourceModel, tea.Cmd) {
 	)
 }
 
+func keepsAlbumTrackOrder(ref *source.Ref) bool {
+	if ref == nil {
+		return false
+	}
+	return ref.Kind == source.KindAlbum || ref.Kind == source.KindArtist
+}
+
 func (m *SourceModel) handleURL(ref *source.Ref) tea.Cmd {
 	return func() tea.Msg {
 		result, err := source.ResolveRef(m.client, ref)
@@ -122,9 +130,10 @@ func (m *SourceModel) handleURL(ref *source.Ref) tea.Cmd {
 			return URLHandleErrorMsg(err.Error())
 		}
 		return SourceSubmitMsg{
-			Tracks:         result.Tracks,
-			FolderArtist:   result.FolderArtist,
-			FolderPlaylist: result.FolderPlaylist,
+			Tracks:               result.Tracks,
+			FolderArtist:         result.FolderArtist,
+			FolderPlaylist:       result.FolderPlaylist,
+			OrderByAlbumPosition: keepsAlbumTrackOrder(ref),
 		}
 	}
 }

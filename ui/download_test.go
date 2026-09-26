@@ -99,9 +99,11 @@ func TestReset(t *testing.T) {
 	m.trackList, _ = m.trackList.Update(keyText("x"))
 	assert.NotEmpty(t, m.trackList.FilterValue())
 
+	m.orderByAlbumPosition = true
 	m.Reset()
 
 	assert.Equal(t, 0, len(m.tracksProgress))
+	assert.False(t, m.orderByAlbumPosition)
 	assert.False(t, m.isDownloading)
 	assert.Equal(t, viewList, m.focusedView)
 	assert.False(t, m.hideDuplicates)
@@ -1205,6 +1207,36 @@ func TestAddTracksUsesLayoutMasksForArtistTreeLabels(t *testing.T) {
 		"track:01 SOS",
 	}, listItemLabels(m.trackList.Items()))
 	assert.Equal(t, []string{"", "", ""}, trackNumberLabels(m.trackList.Items()))
+}
+
+func TestAddTracksAlbumOrdersByDiscAndIndex(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.orderByAlbumPosition = true
+	m.AddTracks([]model.Track{
+		albumTrack("1", "Zebra", "a", "Arrival", 1975, 1, 2),
+		albumTrack("2", "Alpha", "a", "Arrival", 1975, 2, 1),
+		albumTrack("3", "Middle", "a", "Arrival", 1975, 1, 1),
+	})
+
+	assert.Equal(t, []string{
+		"track:Middle",
+		"track:Zebra",
+		"track:Alpha",
+	}, listItemLabels(m.trackList.Items()))
+}
+
+func TestAddTracksAlbumKeepsInputOrderWhenPositionMissing(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.orderByAlbumPosition = true
+	m.AddTracks([]model.Track{
+		albumTrack("1", "Zebra", "a", "Arrival", 1975, 0, 0),
+		albumTrack("2", "Alpha", "a", "Arrival", 1975, 0, 0),
+	})
+
+	assert.Equal(t, []string{
+		"track:Zebra",
+		"track:Alpha",
+	}, listItemLabels(m.trackList.Items()))
 }
 
 func TestAddTracksWithoutFolderArtistStillSortsByTitle(t *testing.T) {
