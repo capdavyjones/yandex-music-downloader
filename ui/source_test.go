@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"ya-music/source"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -58,6 +59,16 @@ func TestSourceRenderIncludesURLExamples(t *testing.T) {
 	} {
 		assert.Contains(t, rendered, example)
 	}
+}
+
+func TestKeepsAlbumTrackOrder(t *testing.T) {
+	assert.True(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindAlbum}))
+	assert.True(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindArtist}))
+	assert.False(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindTrack}))
+	assert.False(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindLegacyPlaylist}))
+	assert.False(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindPlaylistUUID}))
+	assert.False(t, keepsAlbumTrackOrder(&source.Ref{Kind: source.KindChart}))
+	assert.False(t, keepsAlbumTrackOrder(nil))
 }
 
 func TestSourceHandleEnterKeyAcceptsValidArtistURL(t *testing.T) {
