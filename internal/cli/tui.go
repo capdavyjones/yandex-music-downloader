@@ -45,15 +45,7 @@ func runTUI(args []string, stderr io.Writer) int {
 		AlbumArtistFirst: options.albumArtistFirst || cfg.AlbumArtistFirst,
 		AudioFormat:      resolveAudioFormat("", cfg.Format),
 	}
-	prog := tea.NewProgram(ui.StartUiWithLayout(
-		client,
-		downloadOptions,
-		cfg.Layout,
-		cfg.DownloadDir,
-		cfg.Duplicates,
-		cfg.DownloadRetries,
-		cfg.DownloadRetryInterval,
-	))
+	prog := tea.NewProgram(ui.StartUiWithConfig(client, downloadOptions, cfg))
 
 	go func() {
 		sig := <-sigCh

@@ -58,18 +58,15 @@ type trackCloner interface {
 }
 
 type Config struct {
-	Client                trackDownloader
-	Tracks                []model.Track
-	OutputDir             string
-	Options               ya.DownloadOptions
-	Concurrency           int
-	Context               context.Context
-	Layout                config.Layout
-	FolderArtist          string
-	FolderPlaylist        string
-	Duplicates            config.Duplicates
-	DownloadRetries       int
-	DownloadRetryInterval int // секунды между попытками
+	Client         trackDownloader
+	Tracks         []model.Track
+	OutputDir      string
+	Options        ya.DownloadOptions
+	Concurrency    int
+	Context        context.Context
+	Settings       config.Config // настройки из YAML; каждая фича читает своё поле
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
@@ -87,12 +84,12 @@ func Run(cfg Config) <-chan Event {
 	go func() {
 		defer close(events)
 
-		policy := cfg.Duplicates.OrDefault()
+		policy := cfg.Settings.Duplicates.OrDefault()
 		seenIDs := make(map[string]struct{}, len(cfg.Tracks))
 		published := NewPublishedFiles()
 		cloner, _ := cfg.Client.(trackCloner)
 		dirs := trackOutputDirs(cfg)
-		suffixes := filenameSuffixes(cfg.Tracks, dirs, cfg.Layout.TrackFileMask)
+		suffixes := filenameSuffixes(cfg.Tracks, dirs, cfg.Settings.Layout.TrackFileMask)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
@@ -122,7 +119,7 @@ func Run(cfg Config) <-chan Event {
 
 			options := cfg.Options
 			options.FilenameSuffix = suffixes[position]
-			options.FilenameBase = layout.TrackFilenameBase(track, cfg.Layout.TrackFileMask)
+			options.FilenameBase = layout.TrackFilenameBase(track, cfg.Settings.Layout.TrackFileMask)
 			dir := dirs[position]
 
 			var publishedFile *PublishedFile
@@ -142,8 +139,8 @@ func Run(cfg Config) <-chan Event {
 						cloner:                cloner,
 						source:                publishedFile,
 						workers:               &workers,
-						downloadRetries:       cfg.DownloadRetries,
-						downloadRetryInterval: cfg.DownloadRetryInterval,
+						downloadRetries:       cfg.Settings.DownloadRetries,
+						downloadRetryInterval: cfg.Settings.DownloadRetryInterval,
 					})
 					continue
 				}
@@ -168,8 +165,8 @@ func Run(cfg Config) <-chan Event {
 				publishedFile:         publishedFile,
 				leader:                leader,
 				workers:               &workers,
-				downloadRetries:       cfg.DownloadRetries,
-				downloadRetryInterval: cfg.DownloadRetryInterval,
+				downloadRetries:       cfg.Settings.DownloadRetries,
+				downloadRetryInterval: cfg.Settings.DownloadRetryInterval,
 			})
 		}
 
@@ -399,7 +396,7 @@ func acquireSlot(ctx context.Context, sem chan struct{}) bool {
 func trackOutputDirs(cfg Config) []string {
 	dirs := make([]string, len(cfg.Tracks))
 	opts := layout.Options{
-		Layout:         cfg.Layout,
+		Layout:         cfg.Settings.Layout,
 		FolderArtist:   cfg.FolderArtist,
 		FolderPlaylist: cfg.FolderPlaylist,
 	}

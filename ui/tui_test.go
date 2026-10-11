@@ -56,21 +56,38 @@ func TestInputScreensUseSharedBrandHeader(t *testing.T) {
 	assert.Contains(t, sourceView, "Paste a Yandex Music link")
 }
 
-func TestStartUiWithLayoutStoresLayout(t *testing.T) {
+func TestStartUiWithConfigStoresSettings(t *testing.T) {
 	client := ya.NewClient(utils.NewHttpClient())
-	model := StartUiWithLayout(client, ya.DownloadOptions{}, config.Layout{
-		ByArtist:      true,
-		ByAlbum:       true,
-		AlbumDirMask:  "{year} - {title}",
-		TrackFileMask: "{nn} - {title}",
-	}, "./music", config.DuplicatesCopy, 0, 10)
+	model := StartUiWithConfig(client, ya.DownloadOptions{}, config.Config{
+		DownloadDir:           "./music",
+		Duplicates:            config.DuplicatesCopy,
+		DownloadRetries:       3,
+		DownloadRetryInterval: 30,
+		Layout: config.Layout{
+			ByArtist:      true,
+			ByAlbum:       true,
+			AlbumDirMask:  "{year} - {title}",
+			TrackFileMask: "{nn} - {title}",
+		},
+	})
 
-	assert.True(t, model.downloadModel.layout.ByArtist)
-	assert.True(t, model.downloadModel.layout.ByAlbum)
-	assert.Equal(t, "{year} - {title}", model.downloadModel.layout.AlbumDirMask)
-	assert.Equal(t, "{nn} - {title}", model.downloadModel.layout.TrackFileMask)
-	assert.Equal(t, "./music", model.downloadModel.outputDir)
-	assert.Equal(t, config.DuplicatesCopy, model.downloadModel.duplicates)
+	settings := model.downloadModel.settings
+	assert.True(t, settings.Layout.ByArtist)
+	assert.True(t, settings.Layout.ByAlbum)
+	assert.Equal(t, "{year} - {title}", settings.Layout.AlbumDirMask)
+	assert.Equal(t, "{nn} - {title}", settings.Layout.TrackFileMask)
+	assert.Equal(t, "./music", settings.DownloadDir)
+	assert.Equal(t, config.DuplicatesCopy, settings.Duplicates)
+	assert.Equal(t, 3, settings.DownloadRetries)
+	assert.Equal(t, 30, settings.DownloadRetryInterval)
+}
+
+func TestStartUiAppliesSettingDefaults(t *testing.T) {
+	settings := StartUi(nil).downloadModel.settings
+
+	assert.Equal(t, config.DuplicatesID, settings.Duplicates)
+	assert.Equal(t, config.DefaultDownloadRetries, settings.DownloadRetries)
+	assert.Equal(t, config.DefaultDownloadRetryInterval, settings.DownloadRetryInterval)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {

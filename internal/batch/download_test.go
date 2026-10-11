@@ -157,10 +157,12 @@ func TestRunWritesTracksIntoLayoutDirectories(t *testing.T) {
 	events := collect(Run(Config{
 		Client:    client,
 		OutputDir: outputDir,
-		Layout: config.Layout{
-			ByArtist:     true,
-			ByAlbum:      true,
-			AlbumDirMask: "{year} - {title}",
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				AlbumDirMask: "{year} - {title}",
+			},
 		},
 		FolderArtist: "ABBA",
 		Tracks: []model.Track{
@@ -194,11 +196,13 @@ func TestRunWritesPlaylistTracksIntoFlatDirectory(t *testing.T) {
 	events := collect(Run(Config{
 		Client:    client,
 		OutputDir: outputDir,
-		Layout: config.Layout{
-			ByArtist:     true,
-			ByAlbum:      true,
-			ByPlaylist:   true,
-			AlbumDirMask: "{year} - {title}",
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				ByPlaylist:   true,
+				AlbumDirMask: "{year} - {title}",
+			},
 		},
 		FolderArtist:   "ABBA",
 		FolderPlaylist: "Favorites",
@@ -232,7 +236,9 @@ func TestRunSuffixesFilenameCollisionsOnlyInsideTheSameDirectory(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{
 		Client: client,
-		Layout: config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		Settings: config.Config{
+			Layout: config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		},
 		Tracks: []model.Track{
 			{
 				ID:        "1",
@@ -262,7 +268,9 @@ func TestRunPassesMaskedFilenameBaseAndSuffixesMaskCollisions(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{
 		Client: client,
-		Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		Settings: config.Config{
+			Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		},
 		Tracks: []model.Track{
 			{
 				ID:        "1",
@@ -387,8 +395,10 @@ func TestRunRecoversWorkerPanicAndContinues(t *testing.T) {
 func TestRunNoneDownloadsRepeatedIDs(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{
-		Client:     client,
-		Duplicates: config.DuplicatesNone,
+		Client: client,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesNone,
+		},
 		Tracks: []model.Track{
 			{ID: "1", Title: "First", Available: true},
 			{ID: "1", Title: "First", Available: true},
@@ -448,10 +458,12 @@ func TestRunCopyClonesIntoOtherAlbumDirectory(t *testing.T) {
 	client := &cloneRecordingClient{}
 	outputDir := t.TempDir()
 	events := collect(Run(Config{
-		Client:     client,
-		OutputDir:  outputDir,
-		Duplicates: config.DuplicatesCopy,
-		Layout:     config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesCopy,
+			Layout:     config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		},
 		Tracks: []model.Track{
 			{
 				ID:        "1",
@@ -480,9 +492,11 @@ func TestRunCopySkipsSameDestination(t *testing.T) {
 	client := &cloneRecordingClient{}
 	outputDir := t.TempDir()
 	events := collect(Run(Config{
-		Client:     client,
-		OutputDir:  outputDir,
-		Duplicates: config.DuplicatesCopy,
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Duplicates: config.DuplicatesCopy,
+		},
 		Tracks: []model.Track{
 			{ID: "1", Title: "Song", Available: true},
 			{ID: "1", Title: "Song", Available: true},

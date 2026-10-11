@@ -117,14 +117,14 @@ func TestNewDownloadModelStoresDownloadOptions(t *testing.T) {
 	m := NewDownloadModel(nil, ya.DownloadOptions{SkipCover: true})
 
 	assert.True(t, m.downloadOptions.SkipCover)
-	assert.Empty(t, m.outputDir)
+	assert.Empty(t, m.settings.DownloadDir)
 }
 
 func TestDownloadModelTargetDirPrefersEnvOverConfig(t *testing.T) {
 	t.Setenv("YAMDL_DOWNLOAD_DIR", "")
 	assert.Equal(t, "./downloads", NewDownloadModel(nil).targetDir())
 
-	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "./from-config", config.DuplicatesID, 0, 10)
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{DownloadDir: "./from-config"})
 	assert.Equal(t, "./from-config", m.targetDir())
 
 	t.Setenv("YAMDL_DOWNLOAD_DIR", "/env/music")
@@ -174,7 +174,7 @@ func TestAddTracksMarksRepeatedIDsAsDuplicates(t *testing.T) {
 }
 
 func TestAddTracksCopyMarksRepeatedIDsAsDuplicatesButKeepsThemDownloadable(t *testing.T) {
-	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "", config.DuplicatesCopy, 0, 10)
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Duplicates: config.DuplicatesCopy})
 	m.AddTracks([]model.Track{
 		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
 		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
@@ -198,7 +198,7 @@ func TestAddTracksCopyMarksRepeatedIDsAsDuplicatesButKeepsThemDownloadable(t *te
 }
 
 func TestAddTracksNoneKeepsRepeatedIDsReady(t *testing.T) {
-	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{}, "", config.DuplicatesNone, 0, 10)
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Duplicates: config.DuplicatesNone})
 	m.AddTracks([]model.Track{
 		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
 		{ID: model.FlexibleID("1"), Title: "Song", Available: true},
@@ -1188,10 +1188,10 @@ func TestAddTracksKeepsDiscOrderInsideAlbum(t *testing.T) {
 }
 
 func TestAddTracksUsesLayoutMasksForArtistTreeLabels(t *testing.T) {
-	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Layout: config.Layout{
 		AlbumDirMask:  "{title} ({year})",
 		TrackFileMask: "{nn} {title}",
-	}, "", config.DuplicatesID, 0, 10)
+	}})
 	m.folderArtist = "ABBA"
 	m.AddTracks([]model.Track{
 		albumTrack("1", "Mamma", "z", "Zebra", 1980, 1, 2),
@@ -1310,9 +1310,9 @@ func TestSelectedAlbumHeaderShowsAlbumTitle(t *testing.T) {
 }
 
 func TestSelectedTrackInfoUsesTrackFileMaskForArtistTree(t *testing.T) {
-	m := NewDownloadModelWithLayout(nil, ya.DownloadOptions{}, config.Layout{
+	m := NewDownloadModelWithConfig(nil, ya.DownloadOptions{}, config.Config{Layout: config.Layout{
 		TrackFileMask: "{nn} - {title}",
-	}, "", config.DuplicatesID, 0, 10)
+	}})
 	m.folderArtist = "ABBA"
 	m.AddTracks([]model.Track{
 		albumTrack("1", "SOS", "a", "Arrival", 1975, 1, 1),

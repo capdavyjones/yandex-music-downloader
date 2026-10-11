@@ -92,16 +92,13 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
-			Client:                client,
-			Tracks:                tracks,
-			OutputDir:             options.output,
-			Context:               batchContext,
-			Layout:                cfg.Layout,
-			FolderArtist:          preflight.folderArtist,
-			FolderPlaylist:        preflight.folderPlaylist,
-			Duplicates:            cfg.Duplicates,
-			DownloadRetries:       cfg.DownloadRetries,
-			DownloadRetryInterval: cfg.DownloadRetryInterval,
+			Client:         client,
+			Tracks:         tracks,
+			OutputDir:      options.output,
+			Context:        batchContext,
+			Settings:       cfg,
+			FolderArtist:   preflight.folderArtist,
+			FolderPlaylist: preflight.folderPlaylist,
 			Options: ya.DownloadOptions{
 				SkipCover:        options.skipCover,
 				AlbumArtistFirst: options.albumArtistFirst || cfg.AlbumArtistFirst,

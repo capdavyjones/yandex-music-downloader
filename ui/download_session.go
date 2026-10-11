@@ -48,26 +48,21 @@ type DownloadSessionEvent struct {
 }
 
 type DownloadSession struct {
-	client                downloadTrackClient
-	logger                *utils.DownloadLogger
-	options               ya.DownloadOptions
-	outputDir             string
-	concurrency           int
-	layout                config.Layout
-	folderArtist          string
-	folderPlaylist        string
-	duplicates            config.Duplicates
-	downloadRetries       int
-	downloadRetryInterval int
+	client         downloadTrackClient
+	logger         *utils.DownloadLogger
+	options        ya.DownloadOptions
+	outputDir      string
+	concurrency    int
+	settings       config.Config
+	folderArtist   string
+	folderPlaylist string
 }
 
+// SessionConfig передаёт в сессию настройки из YAML и папки, вычисленные по источнику.
 type SessionConfig struct {
-	Layout                config.Layout
-	FolderArtist          string
-	FolderPlaylist        string
-	Duplicates            config.Duplicates
-	DownloadRetries       int
-	DownloadRetryInterval int // секунды между попытками
+	Settings       config.Config
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 func NewDownloadSession(
@@ -85,23 +80,21 @@ func NewDownloadSession(
 		cfg = sessionConfig[0]
 	}
 
-	retryInterval := cfg.DownloadRetryInterval
-	if retryInterval <= 0 {
-		retryInterval = config.DefaultDownloadRetryInterval
+	settings := cfg.Settings
+	settings.Duplicates = settings.Duplicates.OrDefault()
+	if settings.DownloadRetryInterval <= 0 {
+		settings.DownloadRetryInterval = config.DefaultDownloadRetryInterval
 	}
 
 	return &DownloadSession{
-		client:                client,
-		logger:                logger,
-		options:               options,
-		outputDir:             outputDir,
-		concurrency:           maxConcurrentDownloads,
-		layout:                cfg.Layout,
-		folderArtist:          cfg.FolderArtist,
-		folderPlaylist:        cfg.FolderPlaylist,
-		duplicates:            cfg.Duplicates.OrDefault(),
-		downloadRetries:       cfg.DownloadRetries,
-		downloadRetryInterval: retryInterval,
+		client:         client,
+		logger:         logger,
+		options:        options,
+		outputDir:      outputDir,
+		concurrency:    maxConcurrentDownloads,
+		settings:       settings,
+		folderArtist:   cfg.FolderArtist,
+		folderPlaylist: cfg.FolderPlaylist,
 	}
 }
 
@@ -115,9 +108,9 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 			"total_tracks", len(work),
 			"max_concurrent_downloads", s.concurrency,
 			"format", s.options.FormatOrDefault(),
-			"duplicates", string(s.duplicates),
-			"download_retries", s.downloadRetries,
-			"download_retry_interval_sec", s.downloadRetryInterval,
+			"duplicates", string(s.settings.Duplicates),
+			"download_retries", s.settings.DownloadRetries,
+			"download_retry_interval_sec", s.settings.DownloadRetryInterval,
 		)
 
 		published := batch.NewPublishedFiles()
@@ -125,7 +118,7 @@ func (s *DownloadSession) Run(progress []TrackProgress) <-chan DownloadSessionEv
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, s.concurrency)
 		for _, item := range work {
-			if reason, shouldSkip := skipDownloadReason(item.status, s.duplicates); shouldSkip {
+			if reason, shouldSkip := skipDownloadReason(item.status, s.settings.Duplicates); shouldSkip {
 				s.logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*item.track), "skipped",
 					"stage", "queue",
 					"reason", reason,
@@ -159,7 +152,7 @@ func (s *DownloadSession) runTrack(
 	id := item.track.ID.String()
 	var publishedFile *batch.PublishedFile
 	leader := false
-	if s.duplicates.CopiesSharedID() && id != "" {
+	if s.settings.Duplicates.CopiesSharedID() && id != "" {
 		publishedFile, leader = published.Claim(id)
 	}
 
@@ -257,14 +250,14 @@ func (s *DownloadSession) finishDownload(
 		*item.track,
 		dir,
 		options,
-		s.downloadRetries,
-		time.Duration(s.downloadRetryInterval)*time.Second,
+		s.settings.DownloadRetries,
+		time.Duration(s.settings.DownloadRetryInterval)*time.Second,
 		func(remaining int, until time.Time) {
 			if remaining > 0 {
 				s.logger.LogTrack(slog.LevelInfo, trackCtx, "download retry scheduled",
 					"stage", "download_track",
 					"retries_left", remaining,
-					"retry_in_sec", s.downloadRetryInterval,
+					"retry_in_sec", s.settings.DownloadRetryInterval,
 				)
 			}
 			wait := &DownloadRetryWait{Remaining: remaining, Until: until}
@@ -287,7 +280,7 @@ func (s *DownloadSession) prepareOutput(
 	events chan<- DownloadSessionEvent,
 ) (string, ya.DownloadOptions, bool) {
 	dir := layout.TrackOutputDir(s.outputDir, *item.track, layout.Options{
-		Layout:         s.layout,
+		Layout:         s.settings.Layout,
 		FolderArtist:   s.folderArtist,
 		FolderPlaylist: s.folderPlaylist,
 	})
@@ -304,7 +297,7 @@ func (s *DownloadSession) prepareOutput(
 	}
 
 	options := s.options
-	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.layout.TrackFileMask)
+	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.settings.Layout.TrackFileMask)
 	return dir, options, true
 }
 

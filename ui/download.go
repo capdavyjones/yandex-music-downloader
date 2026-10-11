@@ -170,16 +170,12 @@ type downloadRetryTickMsg struct{}
 
 type DownloadModel struct {
 	// External dependencies.
-	client                *ya.Client
-	downloadOptions       ya.DownloadOptions
-	layout                config.Layout
-	outputDir             string
-	duplicates            config.Duplicates
-	downloadRetries       int
-	downloadRetryInterval int
-	folderArtist          string
-	folderPlaylist        string
-	orderByAlbumPosition  bool
+	client               *ya.Client
+	downloadOptions      ya.DownloadOptions
+	settings             config.Config // настройки из YAML; каждая фича читает своё поле
+	folderArtist         string
+	folderPlaylist       string
+	orderByAlbumPosition bool
 
 	// Error message.
 	errorMsg string
@@ -215,26 +211,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
-	return NewDownloadModelWithLayout(
-		client,
-		downloadOptionsOrDefault(options),
-		config.Layout{},
-		"",
-		config.DuplicatesID,
-		config.DefaultDownloadRetries,
-		config.DefaultDownloadRetryInterval,
-	)
+	return NewDownloadModelWithConfig(client, downloadOptionsOrDefault(options), config.Config{})
 }
 
-func NewDownloadModelWithLayout(
-	client *ya.Client,
-	options ya.DownloadOptions,
-	layout config.Layout,
-	output string,
-	duplicates config.Duplicates,
-	downloadRetries int,
-	downloadRetryInterval int,
-) DownloadModel {
+func NewDownloadModelWithConfig(client *ya.Client, options ya.DownloadOptions, settings config.Config) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -263,32 +243,29 @@ func NewDownloadModelWithLayout(
 		}
 	}
 
-	if downloadRetryInterval <= 0 {
-		downloadRetryInterval = config.DefaultDownloadRetryInterval
+	settings.Duplicates = settings.Duplicates.OrDefault()
+	if settings.DownloadRetryInterval <= 0 {
+		settings.DownloadRetryInterval = config.DefaultDownloadRetryInterval
 	}
-	if downloadRetries < 0 {
-		downloadRetries = config.DefaultDownloadRetries
+	if settings.DownloadRetries < 0 {
+		settings.DownloadRetries = config.DefaultDownloadRetries
 	}
 
 	return DownloadModel{
-		client:                client,
-		downloadOptions:       options,
-		layout:                layout,
-		outputDir:             output,
-		duplicates:            duplicates.OrDefault(),
-		downloadRetries:       downloadRetries,
-		downloadRetryInterval: downloadRetryInterval,
-		spinner:               sp,
-		progress:              p,
-		trackList:             l,
-		help:                  newDownloadHelp(),
-		tracksProgress:        []*TrackProgress{},
-		retryWaits:            make(map[string]DownloadRetryWait),
-		focusedView:           viewList,
-		lastActionFocus:       viewFormatMP3,
-		hideDuplicates:        false,
-		shutdownRequested:     false,
-		selectedTrackInfo:     "",
+		client:            client,
+		downloadOptions:   options,
+		settings:          settings,
+		spinner:           sp,
+		progress:          p,
+		trackList:         l,
+		help:              newDownloadHelp(),
+		tracksProgress:    []*TrackProgress{},
+		retryWaits:        make(map[string]DownloadRetryWait),
+		focusedView:       viewList,
+		lastActionFocus:   viewFormatMP3,
+		hideDuplicates:    false,
+		shutdownRequested: false,
+		selectedTrackInfo: "",
 	}
 }
 
@@ -358,7 +335,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 		m.tracksProgress = append(m.tracksProgress, progress)
 	}
 
-	findDuplicates(m.tracksProgress, m.duplicates)
+	findDuplicates(m.tracksProgress, m.settings.Duplicates)
 	// Альбом и дискография — в порядке релиза, остальные источники по названию.
 	if m.groupsByAlbum() || m.orderByAlbumPosition {
 		sortTracksByAlbum(m.tracksProgress)
@@ -368,7 +345,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 
 	m.updateTrackList()
 	m.tracksTotalCount = len(m.tracksProgress)
-	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.settings.Duplicates)
 	m.selectedTrackInfo = m.selectedItemInfo()
 }
 
@@ -647,22 +624,14 @@ func (m DownloadModel) startDownloadSession(include map[string]struct{}) tea.Cmd
 	logger := downloadLogger(client)
 	options := m.downloadOptions
 	targetDir := m.targetDir()
-	layoutCfg := m.layout
-	folderArtist := m.folderArtist
-	folderPlaylist := m.folderPlaylist
-	duplicates := m.duplicates
-	downloadRetries := m.downloadRetries
-	downloadRetryInterval := m.downloadRetryInterval
+	sessionConfig := SessionConfig{
+		Settings:       m.settings,
+		FolderArtist:   m.folderArtist,
+		FolderPlaylist: m.folderPlaylist,
+	}
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, targetDir, SessionConfig{
-			Layout:                layoutCfg,
-			FolderArtist:          folderArtist,
-			FolderPlaylist:        folderPlaylist,
-			Duplicates:            duplicates,
-			DownloadRetries:       downloadRetries,
-			DownloadRetryInterval: downloadRetryInterval,
-		})
+		session := NewDownloadSession(client, logger, options, targetDir, sessionConfig)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }
@@ -703,7 +672,7 @@ func (m *DownloadModel) resetState() {
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.settings.Duplicates)
 	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 
@@ -763,11 +732,11 @@ func (m *DownloadModel) updateTrackList() {
 func (m *DownloadModel) groupedTrackListItems() []list.Item {
 	items := make([]list.Item, 0, len(m.tracksProgress)+8)
 	lastKey := "\x00"
-	albumMask := strings.TrimSpace(m.layout.AlbumDirMask)
+	albumMask := strings.TrimSpace(m.settings.Layout.AlbumDirMask)
 	if albumMask == "" {
 		albumMask = config.DefaultAlbumMask
 	}
-	trackMask := m.layout.TrackFileMask
+	trackMask := m.settings.Layout.TrackFileMask
 
 	for _, tp := range m.tracksProgress {
 		if m.hideDuplicates && tp.status == TrackStatusDuplicate {
@@ -828,7 +797,7 @@ func (m *DownloadModel) getTrackInfo(uid string) string {
 	for _, tp := range m.tracksProgress {
 		if tp.uid == uid {
 			if m.groupsByAlbum() && tp.track != nil {
-				info = layout.ApplyTrackFileMask(m.layout.TrackFileMask, *tp.track)
+				info = layout.ApplyTrackFileMask(m.settings.Layout.TrackFileMask, *tp.track)
 			} else {
 				info = fmt.Sprintf("%s - %s", tp.track.FullTitle(), tp.track.ArtistsString())
 			}
@@ -943,7 +912,7 @@ func (m DownloadModel) renderQueueHeader() string {
 // targetDir resolves the download root: YAMDL_DOWNLOAD_DIR, then download_dir
 // from the YAML config, then ./downloads.
 func (m DownloadModel) targetDir() string {
-	return utils.ResolveOutputDirWithFallback(m.outputDir)
+	return utils.ResolveOutputDirWithFallback(m.settings.DownloadDir)
 }
 
 func (m *DownloadModel) applyRetryWait(uid string, wait *DownloadRetryWait, completed bool) {
@@ -1588,8 +1557,8 @@ func (m *DownloadModel) normalizeCanceledTracks() {
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-	findDuplicates(m.tracksProgress, m.duplicates)
-	m.downloadableCount = countDownloadable(m.tracksProgress, m.duplicates)
+	findDuplicates(m.tracksProgress, m.settings.Duplicates)
+	m.downloadableCount = countDownloadable(m.tracksProgress, m.settings.Duplicates)
 	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 	m.updateTrackList()
