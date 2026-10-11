@@ -1,6 +1,7 @@
 .vscode/
 downloads/
 build/
+/yamdl
 token.txt
 yamdl.yaml
 debug.log
